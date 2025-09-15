@@ -213,18 +213,12 @@ T = result["totals"]
 # ------------------------------
 # ------------------------------
 # ------------------------------
+# ------------------------------
 # 1) Executive Summary
 # ------------------------------
 st.subheader("1) Executive Summary")
 
-# Safe currency symbol detection (check dataframe after it's built)
-def _currency_symbol(df: pd.DataFrame) -> str:
-    cols = " ".join(df.columns).lower()
-    if "inr" in cols or "₹" in cols:
-        return "₹"
-    return "$"
-
-CUR = _currency_symbol(w)  # w is the cleaned dataframe already created
+CUR = "$"  # Always use USD
 
 # FOMO hero banner
 st.markdown(
