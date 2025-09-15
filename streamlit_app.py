@@ -211,38 +211,51 @@ leaks = result["leaks"]
 T = result["totals"]
 
 # ------------------------------
+# ------------------------------
 # 1) Executive Summary
 # ------------------------------
 st.subheader("1) Executive Summary")
 
-# Hero FOMO banner
-hero_cols = st.columns([1,1])
-with hero_cols[0]:
-    st.markdown(f"### 🚨 You're leaking **~{('₹' if 'inr' in (_norm(SPEND or '')) else '$')}{T['wasted_total']:,.0f}** this month\nFixing these leaks now can put this money back into sales.")
-with hero_cols[1]:
-    st.markdown("**Plain-language note:** We call any spend that doesn't bring sales a *leak*. The goal is to stop leaks and push budget into what works.")
+# Helper: pick a currency symbol from the spend column name
+def _currency_symbol(spend_col_name: str) -> str:
+    s = (spend_col_name or "").lower()
+    if "inr" in s or "₹" in s: 
+        return "₹"
+    return "$"
 
-met1, met2, met3, met4 = st.columns(4)
-met1.metric("Total Spend", f"{('₹' if 'inr' in (_norm(SPEND or '')) else '$')}{T['total_spend']:,.0f}")
-met2.metric("Wasted Spend (leak)", f"{('₹' if 'inr' in (_norm(SPEND or '')) else '$')}{T['wasted_total']:,.0f}")
-met3.metric("Average ROAS", f"{T['avg_roas']:.2f}")
-met4.metric("Potential Monthly Savings", f"{('₹' if 'inr' in (_norm(SPEND or '')) else '$')}{T['wasted_total']:,.0f}")
+CUR = _currency_symbol(SPEND)  # SPEND is already defined earlier
+
+# FOMO hero
+st.markdown(
+    f"### 🚨 You're leaking **~{CUR}{T['wasted_total']:,.0f}** this month\n"
+    "Fixing these leaks now can put this money back into sales."
+)
+
+st.markdown(
+    "**What’s a leak?** Any ad spend that doesn’t bring sales. "
+    "We plug leaks and move budget into what *does* work."
+)
+
+# KPI cards
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Total Spend", f"{CUR}{T['total_spend']:,.0f}")
+m2.metric("Wasted Spend (leak)", f"{CUR}{T['wasted_total']:,.0f}")
+m3.metric("Average ROAS", f"{T['avg_roas']:.2f}")
+m4.metric("Potential Monthly Savings", f"{CUR}{T['wasted_total']:,.0f}")
 
 # Minimal visual: Effective vs Waste (donut)
-pie = go.Figure(data=[go.Pie(labels=["Effective Spend","Wasted Spend"], values=[T['effective_now'], T['wasted_total']], hole=0.55, textinfo='label+percent')])
-pie.update_layout(height=280, margin=dict(l=10,r=10,t=0,b=0), showlegend=False)
-st.plotly_chart(pie, use_container_width=True)
+import plotly.graph_objects as go
+donut = go.Figure(
+    data=[go.Pie(
+        labels=["Effective Spend","Wasted Spend"],
+        values=[T['effective_now'], T['wasted_total']],
+        hole=0.55, textinfo="label+percent"
+    )]
+)
+donut.update_layout(height=280, margin=dict(l=10, r=10, t=0, b=0), showlegend=False)
+st.plotly_chart(donut, use_container_width=True)
 
-st.caption(f"Every day you wait ≈ {('₹' if 'inr' in (_norm(SPEND or '')) else '$')}{T['daily_waste']:,.0f} leaks out of your ads.")
-
-#
-# ------------------------------
-st.subheader("2) Top Leaks (Headlines)")
-if leaks.empty:
-    st.success("No major leaks detected under current thresholds. Nice work!")
-else:
-    leaks_show = leaks.rename(columns={"Wasted_₹":"Wasted (₹)"})
-    st.dataframe(leaks_show, use_container_width=True)
+st.caption(f"Every day you wait ≈ {CUR}{T['daily_waste']:,.0f} leaks out of your ads.")
 
 # ------------------------------
 # 3) Fix Checklist (Recoverable Revenue)
