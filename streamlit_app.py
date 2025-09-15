@@ -216,14 +216,20 @@ T = result["totals"]
 # ------------------------------
 st.subheader("1) Executive Summary")
 
-# Helper: pick a currency symbol from the spend column name
-def _currency_symbol(spend_col_name: str) -> str:
-    s = (spend_col_name or "").lower()
-    if "inr" in s or "₹" in s: 
+# ------------------------------
+# 1) Executive Summary
+# ------------------------------
+st.subheader("1) Executive Summary")
+
+# Safe currency symbol detection
+def _currency_symbol(df):
+    cols = " ".join(df.columns).lower()
+    if "inr" in cols or "₹" in cols:
         return "₹"
     return "$"
 
-CUR = _currency_symbol(SPEND)  # SPEND is already defined earlier
+CUR = _currency_symbol(w)  # use dataframe columns, not SPEND
+
 
 # FOMO hero
 st.markdown(
