@@ -212,26 +212,21 @@ T = result["totals"]
 
 # ------------------------------
 # ------------------------------
-# 1) Executive Summary
-# ------------------------------
-st.subheader("1) Executive Summary")
-
 # ------------------------------
 # 1) Executive Summary
 # ------------------------------
 st.subheader("1) Executive Summary")
 
-# Safe currency symbol detection
-def _currency_symbol(df):
+# Safe currency symbol detection (check dataframe after it's built)
+def _currency_symbol(df: pd.DataFrame) -> str:
     cols = " ".join(df.columns).lower()
     if "inr" in cols or "₹" in cols:
         return "₹"
     return "$"
 
-CUR = _currency_symbol(w)  # use dataframe columns, not SPEND
+CUR = _currency_symbol(w)  # w is the cleaned dataframe already created
 
-
-# FOMO hero
+# FOMO hero banner
 st.markdown(
     f"### 🚨 You're leaking **~{CUR}{T['wasted_total']:,.0f}** this month\n"
     "Fixing these leaks now can put this money back into sales."
@@ -249,18 +244,20 @@ m2.metric("Wasted Spend (leak)", f"{CUR}{T['wasted_total']:,.0f}")
 m3.metric("Average ROAS", f"{T['avg_roas']:.2f}")
 m4.metric("Potential Monthly Savings", f"{CUR}{T['wasted_total']:,.0f}")
 
-# Minimal visual: Effective vs Waste (donut)
+# Minimal visual: Effective vs Waste (donut chart)
 import plotly.graph_objects as go
 donut = go.Figure(
     data=[go.Pie(
         labels=["Effective Spend","Wasted Spend"],
         values=[T['effective_now'], T['wasted_total']],
-        hole=0.55, textinfo="label+percent"
+        hole=0.55,
+        textinfo="label+percent"
     )]
 )
 donut.update_layout(height=280, margin=dict(l=10, r=10, t=0, b=0), showlegend=False)
 st.plotly_chart(donut, use_container_width=True)
 
+# FOMO caption
 st.caption(f"Every day you wait ≈ {CUR}{T['daily_waste']:,.0f} leaks out of your ads.")
 
 # ------------------------------
