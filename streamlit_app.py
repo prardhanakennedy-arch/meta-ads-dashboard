@@ -310,13 +310,109 @@ with c3:
         st.write("No audience/segment field to chart.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Top rows sample
-st.markdown('<div class="card">**Top rows (sample)**</div>', unsafe_allow_html=True)
+# Replace the "Top rows (sample)" section with a "Top Revenue-Generating Campaigns" feature
+from pathlib import Path
+
+p = Path("/mnt/data/streamlit_app_noleaks_report.py")
+src = p.read_text(encoding="utf-8")
+
+old_block = '''st.markdown('<div class="card">**Top rows (sample)**</div>', unsafe_allow_html=True)
 sample_cols = [c for c in ["adset_name","campaign_name","clicks","impressions"] if c in U.columns]
 if sample_cols:
     st.dataframe(U[sample_cols].head(12), use_container_width=True, height=300)
 else:
     st.write("No matching columns to preview.")
+'''
+
+new_block = '''
+# --- Top Revenue-Generating Campaigns (replaces sample rows) ---
+st.markdown('<div class="card">**Top Revenue-Generating Campaigns**</div>', unsafe_allow_html=True)
+
+if "campaign_name" in U.columns:
+    # Controls
+    ctl1, ctl2, ctl3 = st.columns([1,1,4])
+    with ctl1:
+        rank_by = st.selectbox("Rank by", ["Revenue", "ROAS", "Purchases", "Clicks"], index=0, key="rank_by_camp")
+    with ctl2:
+        top_n = st.slider("Show top N", min_value=5, max_value=50, value=10, step=1, key="topn_camp")
+
+    # Aggregate
+    grp = U.groupby("campaign_name", dropna=True).agg(
+        spend=("spend", "sum"),
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        purchases=("purchases", "sum"),
+        revenue_ads=("revenue_ads", "sum"),
+    ).reset_index()
+
+    # Revenue estimate (fallback to AOV * purchases if revenue missing/zero)
+    rev_est = grp["revenue_ads"]
+    need_fallback = rev_est <= 0
+    if need_fallback.any():
+        rev_est = rev_est.mask(need_fallback, grp["purchases"] * float(assumed_aov))
+    grp["revenue"] = rev_est
+
+    # Derived metrics
+    grp["ctr"] = (grp["clicks"] / grp["impressions"]).fillna(0.0).replace([float("inf"), float("-inf")], 0.0)
+    grp["roas"] = (grp["revenue"] / grp["spend"]).replace([float("inf"), float("-inf")], 0.0).fillna(0.0)
+    grp["cpa"]  = (grp["spend"] / grp["purchases"]).replace([float("inf"), float("-inf")], 0.0).fillna(0.0)
+
+    # Sorting
+    sort_map = {
+        "Revenue": ("revenue", False),
+        "ROAS": ("roas", False),
+        "Purchases": ("purchases", False),
+        "Clicks": ("clicks", False),
+    }
+    sort_col, asc = sort_map.get(rank_by, ("revenue", False))
+    grp = grp.sort_values(sort_col, ascending=asc).head(top_n)
+
+    # Display (formatted)
+    disp = grp.rename(columns={
+        "campaign_name": "Campaign",
+        "spend": "Spend",
+        "revenue": "Revenue",
+        "roas": "ROAS",
+        "purchases": "Purchases",
+        "cpa": "CPA",
+        "ctr": "CTR",
+        "impressions": "Impressions",
+        "clicks": "Clicks",
+    }).copy()
+
+    # Keep numeric for sorting; create a styled copy for display
+    disp_fmt = disp.copy()
+    disp_fmt["Spend"] = disp_fmt["Spend"].map(lambda x: f"${x:,.0f}")
+    disp_fmt["Revenue"] = disp_fmt["Revenue"].map(lambda x: f"${x:,.0f}")
+    disp_fmt["CPA"] = disp_fmt["CPA"].map(lambda x: f"${x:,.0f}" if x>0 else "–")
+    disp_fmt["ROAS"] = disp_fmt["ROAS"].map(lambda x: f"{x:,.2f}x")
+    disp_fmt["CTR"] = disp_fmt["CTR"].map(lambda x: f"{x*100:,.2f}%")
+
+    st.dataframe(
+        disp_fmt[["Campaign","Revenue","Spend","ROAS","Purchases","CPA","Clicks","Impressions","CTR"]],
+        use_container_width=True, height=360
+    )
+
+    # Download CSV (raw numeric data)
+    st.download_button(
+        "⬇️ Download campaigns (.csv)",
+        data=grp.to_csv(index=False).encode("utf-8"),
+        file_name="top_campaigns.csv",
+        mime="text/csv"
+    )
+else:
+    st.write("No campaign field in file to rank by.")
+'''
+
+if old_block in src:
+    src = src.replace(old_block, new_block)
+else:
+    # Fallback: try a more lenient replacement if spacing changed
+    src = src.replace("**Top rows (sample)**", "**Top Revenue-Generating Campaigns**")
+
+p.write_text(src, encoding="utf-8")
+
+str(p)
 
 # ------------------------
 # Leak calculations (kept for math, but not displayed as cards)
