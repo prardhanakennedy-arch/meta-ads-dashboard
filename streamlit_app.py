@@ -1,11 +1,3 @@
-# Overwrite streamlit_app.py with a simplified, layman-first, FOMO-focused dashboard.
-# - Accepts CSV/TXT only for ad platform (Meta or Google) + optional backend/web CSVs
-# - Organizes leaks by: Category, Where it happens, Root cause, Revenue impact ($), Clear actions
-# - Shows Before vs After revenue table (monthly + annual projection)
-# - Uses simple language, hides jargon, no graphs
-# - All downloads are in-memory (no file writes required at runtime)
-
-code = r'''
 # streamlit_app.py
 # ----------------
 # Meta/Google Ads Revenue Leak Finder — Plain Language, FOMO Edition
@@ -47,7 +39,7 @@ def _to_date(x):
 def load_csv(uploaded_file, parse_dates=None):
     if uploaded_file is None:
         return None
-    # Read as CSV first, fall back to Excel if needed
+    # Read as CSV first; fall back to Excel if needed
     try:
         df = pd.read_csv(uploaded_file)
     except Exception:
@@ -75,39 +67,38 @@ def pct(n):
     except Exception:
         return "n/a"
 
-def get_first(df, cols, default=np.nan):
+def get_first(df, cols, default=None):
     for c in cols:
-        if c in df.columns:
+        if c and c in df.columns:
             return c
     return None
 
 def series_or_default(df, cols, default=0.0):
     for c in cols:
-        if c in df.columns:
-            s = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-            return s
+        if c and c in df.columns:
+            return pd.to_numeric(df[c], errors="coerce").fillna(0.0)
     return pd.Series([default]*len(df))
 
 # ------------------------
 # Sidebar — Inputs
 # ------------------------
 st.sidebar.title("Inputs")
-platform = st.sidebar.radio("Ad Platform", ["Meta Ads", "Google Ads"], index=0, help="Pick which platform this CSV represents.")
-meta_file = st.sidebar.file_uploader("Ads CSV (Meta OR Google)", type=["csv","txt"], help="Upload ONE CSV for ads data.")
+platform = st.sidebar.radio("Ad Platform", ["Meta Ads", "Google Ads"], index=0)
+ads_file = st.sidebar.file_uploader("Ads CSV (Meta OR Google)", type=["csv","txt"], help="Upload ONE CSV for ads data.")
 backend_file = st.sidebar.file_uploader("Backend Orders CSV (optional)", type=["csv","txt"])
 web_file = st.sidebar.file_uploader("Web Analytics CSV (optional)", type=["csv","txt"])
 
 st.sidebar.markdown("---")
-st.sidebar.title("Assumptions (you can tweak)")
+st.sidebar.title("Assumptions (tweak if needed)")
 assumed_aov = st.sidebar.number_input("Average Order Value", value=75.0, step=1.0)
-uplift_creative = st.sidebar.slider("Expected gain from refreshing tired ads", 0.0, 0.5, 0.10, 0.01)
-uplift_overlap = st.sidebar.slider("Expected gain from fixing audience overlap", 0.0, 0.4, 0.06, 0.01)
+uplift_creative = st.sidebar.slider("Gain from refreshing tired ads", 0.0, 0.5, 0.10, 0.01)
+uplift_overlap = st.sidebar.slider("Gain from fixing audience overlap", 0.0, 0.4, 0.06, 0.01)
 mobile_cr_target_factor = st.sidebar.slider("Target Mobile CR vs Desktop", 0.1, 1.0, 0.6, 0.05)
 
 st.sidebar.markdown("---")
 st.sidebar.title("Thresholds")
-ctr_low = st.sidebar.number_input("Low CTR (tired ads) threshold", value=0.008, format="%.4f")
-freq_high = st.sidebar.number_input("High Frequency (tired ads) threshold", value=5.0, step=0.5)
+ctr_low = st.sidebar.number_input("Low CTR threshold (tired ads)", value=0.008, format="%.4f")
+freq_high = st.sidebar.number_input("High Frequency threshold", value=5.0, step=0.5)
 min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", value=50.0, step=10.0)
 
 # ------------------------
@@ -116,16 +107,16 @@ min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", valu
 st.title("Revenue Leak Finder — Simple, Actionable, FOMO Ready")
 st.caption("Focus: where money is leaking, how much, and what to do right now. No jargon, no graphs.")
 
-if meta_file is None:
+if ads_file is None:
     st.info("Upload your **Ads CSV** (Meta OR Google) to get started. Optional: Backend Orders CSV, Web Analytics CSV.")
     st.stop()
 
 # ------------------------
 # Load data
 # ------------------------
-ads_df = load_csv(meta_file, parse_dates=["date"])
+ads_df = load_csv(ads_file, parse_dates=["date"])
 if ads_df is None or ads_df.empty:
-    st.error("Could not read your Ads CSV. Please upload a valid CSV.")
+    st.error("Could not read your Ads CSV. Please upload a valid CSV/TXT.")
     st.stop()
 
 backend_df = load_csv(backend_file, parse_dates=["date"]) if backend_file else None
@@ -134,7 +125,6 @@ web_df = load_csv(web_file, parse_dates=["date"]) if web_file else None
 # ------------------------
 # Normalize columns
 # ------------------------
-# Common names for ads
 spend_col = get_first(ads_df, ["spend","cost","amount_spent","ad_cost"])
 imp_col = get_first(ads_df, ["impressions","impr"])
 clk_col = get_first(ads_df, ["clicks","click"])
@@ -149,9 +139,9 @@ objective_col = get_first(ads_df, ["objective","campaign_objective"])
 aud_stage_col = get_first(ads_df, ["audience_stage","funnel_stage"])
 aud_name_col = get_first(ads_df, ["audience_name","audience","segment"])
 
-# Build a unified dataframe
 U = pd.DataFrame()
-U["date"] = ads_df[get_first(ads_df, ["date","day","day_date"], None)] if get_first(ads_df, ["date","day","day_date"]) else pd.NaT
+date_col = get_first(ads_df, ["date","day","day_date"])
+U["date"] = ads_df[date_col] if date_col else pd.NaT
 U["campaign_name"] = ads_df[campaign_col] if campaign_col else "Unknown"
 U["adset_name"] = ads_df[adset_col] if adset_col else "Unknown"
 U["ad_name"] = ads_df[ad_col] if ad_col else "Unknown"
@@ -162,8 +152,7 @@ U["audience_name"] = ads_df[aud_name_col] if aud_name_col else ""
 U["spend"] = series_or_default(ads_df, [spend_col], 0.0)
 U["impressions"] = series_or_default(ads_df, [imp_col], 0.0)
 U["clicks"] = series_or_default(ads_df, [clk_col], 0.0)
-# CTR: if not present, compute
-if ctr_col and ctr_col in ads_df.columns:
+if ctr_col:
     U["ctr"] = pd.to_numeric(ads_df[ctr_col], errors="coerce").fillna(0.0)
 else:
     U["ctr"] = (U["clicks"] / U["impressions"]).replace([np.inf, -np.inf], 0.0).fillna(0.0)
@@ -171,9 +160,8 @@ U["frequency"] = series_or_default(ads_df, [freq_col], 0.0)
 U["purchases"] = series_or_default(ads_df, [purch_col], 0.0)
 U["revenue_ads"] = series_or_default(ads_df, [rev_col], 0.0)
 
-# Platform-specific notes
-is_meta = platform == "Meta Ads"
-is_google = platform == "Google Ads"
+is_meta = (platform == "Meta Ads")
+is_google = (platform == "Google Ads")
 
 # ------------------------
 # Period & aggregates
@@ -184,60 +172,55 @@ period_str = f"{period_start.date()} to {period_end.date()}" if pd.notna(period_
 
 total_spend = float(U["spend"].sum())
 ads_reported_rev = float(U["revenue_ads"].sum())
-# If revenue not present, estimate from purchases * AOV
 if ads_reported_rev == 0 and U["purchases"].sum() > 0:
     ads_reported_rev = float(U["purchases"].sum() * assumed_aov)
 
-# Backend revenue if provided
 backend_rev = None
 if backend_df is not None and not backend_df.empty:
-    # find backend revenue column
     b_rev_col = get_first(backend_df, ["backend_revenue","revenue","net_revenue"])
     if b_rev_col:
         backend_rev = float(pd.to_numeric(backend_df[b_rev_col], errors="coerce").fillna(0.0).sum())
 
-# Choose current revenue number to show
-current_revenue = float(backend_rev if backend_rev is not None and backend_rev > 0 else ads_reported_rev)
+current_revenue = float(backend_rev if backend_rev and backend_rev > 0 else ads_reported_rev)
 
 # ------------------------
-# Leak Calculations (simple, money-first)
+# Leak calculations
 # ------------------------
 leaks = []
 
-# 1) Tracking mismatch (if backend available)
-if backend_rev is not None and backend_rev > 0:
+# 1) Tracking mismatch (if backend present)
+if backend_rev and backend_rev > 0:
     tracking_diff = ads_reported_rev - backend_rev
     tracking_diff_pct = tracking_diff / backend_rev if backend_rev > 0 else 0.0
     leaks.append({
         "name":"Tracking/Reporting Mismatch",
         "category":"Tracking Setup",
         "where":"Pixel & Conversions / Measurement",
-        "root":"Ads platform reports more/less sales than your backend (likely duplicate/missing events or settings).",
-        "impact":0.0,  # treat as risk
+        "root":"Ads platform reports more/less sales than your backend (duplicate/missing events or settings).",
+        "impact":0.0,  # treat as risk, not added to $ recovery
         "impact_note":f"Risk: {money(tracking_diff)} difference ({pct(tracking_diff_pct)}). Fix to avoid bad decisions.",
         "actions":[
-            "Turn on server-side Conversions API (Meta) or enhanced conversions (Google).",
+            "Turn on server-side Conversions API (Meta) or Enhanced Conversions (Google).",
             "Ensure only one Purchase/Conversion event fires per order.",
             "Use a consistent attribution window (e.g., 7-day click, 1-day view).",
             "Judge real sales by backend, not ad platform alone."
         ]
     })
 
-# 2) Wrong objective (Meta only, BOFU not Purchase)
+# 2) Wrong objective (Meta retargeting not set to Purchase)
 if is_meta:
     U["is_bofu_like"] = False
     if "audience_stage" in U.columns and U["audience_stage"].dtype == object:
         U["is_bofu_like"] = U["audience_stage"].str.upper().isin(["MOFU","BOFU"])
-    # heuristic: retargeting keywords
     mask_rt = U["campaign_name"].str.lower().str.contains("retarget|remarket|cart|viewcontent|view content|dpa|catalog", regex=True)
     U.loc[mask_rt, "is_bofu_like"] = True
+
     obj = U["objective"].astype(str).str.lower()
     is_purchase_objective = obj.str.contains("purchase|sales|conversions")
     bofu_spend = float(U.loc[U["is_bofu_like"], "spend"].sum())
     bofu_wrong = float(U.loc[U["is_bofu_like"] & (~is_purchase_objective), "spend"].sum())
     misalign_share = (bofu_wrong / bofu_spend) if bofu_spend > 0 else 0.0
-    # Estimate: shifting this spend to Purchase can increase effective revenue
-    impact_obj = current_revenue * misalign_share * 0.10  # 10% conservative gain
+    impact_obj = current_revenue * misalign_share * 0.10  # 10% conservative
     leaks.append({
         "name":"Wrong Goal for Retargeting",
         "category":"Ad Account Setup",
@@ -248,13 +231,17 @@ if is_meta:
         "actions":[
             "Switch all retargeting campaigns to **Purchase/Sales/Conversions** objective.",
             "Separate prospecting (TOFU) from retargeting (BOFU).",
-            "Move budget towards campaigns with actual purchases."
+            "Move budget toward campaigns with actual purchases."
         ]
     })
 
 # 3) Tired creatives (low CTR + high frequency with enough spend)
-ad_perf = U.groupby("ad_name", dropna=True).agg(spend=("spend","sum"), ctr=("ctr","mean"), freq=("frequency","mean")).reset_index()
-ad_perf["is_underperformer"] = (ad_perf["ctr"] < float(ctr_low)) & (ad_perf["freq"] > float(freq_high)) & (ad_perf["spend"] >= float(min_spend_considered))
+ad_perf = U.groupby("ad_name", dropna=True).agg(spend=("spend","sum"),
+                                                ctr=("ctr","mean"),
+                                                freq=("frequency","mean")).reset_index()
+ad_perf["is_underperformer"] = (ad_perf["ctr"] < float(ctr_low)) & \
+                               (ad_perf["freq"] > float(freq_high)) & \
+                               (ad_perf["spend"] >= float(min_spend_considered))
 under_spend = float(ad_perf.loc[ad_perf["is_underperformer"], "spend"].sum())
 under_share = (under_spend / total_spend) if total_spend > 0 else 0.0
 impact_creative = current_revenue * under_share * float(uplift_creative)
@@ -272,7 +259,7 @@ leaks.append({
     ]
 })
 
-# 4) Audience overlap (if we have audience names)
+# 4) Audience overlap (if audience names present)
 overlap_impact = 0.0
 overlap_note = "No audience names found; overlap risk estimated as low."
 if "audience_name" in U.columns and U["audience_name"].astype(str).str.len().max() > 0:
@@ -293,15 +280,14 @@ leaks.append({
     "actions":[
         "Add exclusions between stages: TOFU excludes MOFU/BOFU audiences.",
         "Use lookalikes from your best buyers (high AOV).",
-        "Consider Advantage+ (Meta) or simplified structure (Google) and monitor overlap."
+        "Use simplified structures (e.g., Advantage+ or consolidated campaigns) and monitor overlap."
     ]
 })
 
-# 5) Mobile drop-offs (needs web analytics; else estimate potential)
+# 5) Mobile drop-offs (prefer web analytics; else estimate)
 mobile_impact = 0.0
 mobile_note = "Estimated potential based on typical mobile issues."
 if web_df is not None and not web_df.empty:
-    # Expect columns: device, sessions, conversion_rate, avg_page_load_time
     dev_col = get_first(web_df, ["device"])
     ses_col = get_first(web_df, ["sessions"])
     cr_col = get_first(web_df, ["conversion_rate","purchase_rate"])
@@ -324,12 +310,11 @@ if web_df is not None and not web_df.empty:
         else:
             mobile_note = "Mobile conversion lags desktop. Speed/checkout fixes can lift results."
 else:
-    # conservative placeholder: assume 70% mobile share, 40% lower CR than desktop → 5% of revenue recoverable
     mobile_impact = current_revenue * 0.05
     mobile_note = "No web CSV provided. Estimated 5% recovery by improving mobile speed and checkout."
 
 leaks.append({
-    "name":"Mobile Drop‑offs",
+    "name":"Mobile Drop-offs",
     "category":"Website/Checkout",
     "where":"Mobile product pages & checkout",
     "root":"Slow pages or clunky checkout on phones make people quit.",
@@ -343,9 +328,8 @@ leaks.append({
 })
 
 # ------------------------
-# Rank leaks by money impact (highest first, tracking risk shown but not counted)
+# Rank & totals
 # ------------------------
-# Separate risk-only items (impact=0 with impact_note mentioning Risk)
 money_leaks = [l for l in leaks if l["impact"] > 0]
 risk_leaks = [l for l in leaks if l["impact"] == 0]
 
@@ -355,13 +339,13 @@ total_recoverable = float(sum(l["impact"] for l in money_leaks))
 annual_leak = total_recoverable * 12.0
 
 # ------------------------
-# Top Banner — FOMO
+# FOMO banner
 # ------------------------
 st.markdown(f"### You’re likely leaking **{money(total_recoverable)} / month** right now.")
 st.markdown(f"That’s **{money(annual_leak)} / year** if nothing changes. Fix the top items this week.")
 
 # ------------------------
-# Before vs After table
+# Before vs After (table)
 # ------------------------
 after_revenue = current_revenue + total_recoverable
 delta = after_revenue - current_revenue
@@ -376,7 +360,7 @@ st.subheader("Revenue: Before vs After (Estimates)")
 st.table(bt.style.format({"Monthly Revenue":"${:,.0f}","Annual Revenue":"${:,.0f}"}))
 
 # ------------------------
-# Leak Cards (simple language)
+# Leak Cards
 # ------------------------
 def leak_card(L):
     st.markdown(f"#### {L['name']}")
@@ -401,7 +385,7 @@ if risk_leaks:
         leak_card(L)
 
 # ------------------------
-# Download — PDF/Markdown/HTML (in-memory)
+# Downloads (in-memory)
 # ------------------------
 report_md_lines = [
     f"# Revenue Leak Report — {platform}",
@@ -425,14 +409,14 @@ for L in money_leaks + risk_leaks:
         (f"- Note: {L['impact_note']}" if L.get('impact_note') else ""),
         "- What to do next:",
     ] + [f"  - {a}" for a in L["actions"]] + [""]
-report_md = "\n".join(report_md_lines).encode("utf-8")
 
+report_md = "\n".join(report_md_lines).encode("utf-8")
 st.download_button("⬇️ Download Report (.md)", data=report_md, file_name="revenue_leak_report.md", mime="text/markdown")
 
 html_bytes = f"""
 <html><head><meta charset="utf-8"><title>Revenue Leak Report</title></head>
 <body style="font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:40px auto;line-height:1.5;">
-{report_md.decode('utf-8').replace('\n','<br/>\n')}
+{report_md.decode('utf-8').replace('\\n','<br/>\\n')}
 </body></html>
 """.encode("utf-8")
 st.download_button("⬇️ Download Report (.html)", data=html_bytes, file_name="revenue_leak_report.html", mime="text/html")
@@ -444,7 +428,6 @@ def pdf_from_md(md_text):
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="H1", fontSize=18, leading=22, spaceAfter=8))
-    styles.add(ParagraphStyle(name="H2", fontSize=14, leading=18, spaceBefore=8, spaceAfter=6))
     styles.add(ParagraphStyle(name="Body", fontSize=10, leading=14))
     story = [Paragraph("Revenue Leak Report", styles["H1"]), Spacer(1, 6)]
     for block in md_text.split("\n\n"):
@@ -459,9 +442,3 @@ if REPORTLAB_AVAILABLE:
         st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
 else:
     st.info("PDF export: install ReportLab with `pip install reportlab` to enable the PDF download.")
-'''
-
-with open('/mnt/data/streamlit_app.py', 'w', encoding='utf-8') as f:
-    f.write(code)
-
-'/mnt/data/streamlit_app.py'
