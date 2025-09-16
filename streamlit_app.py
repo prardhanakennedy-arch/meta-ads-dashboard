@@ -1,18 +1,19 @@
-# Create a simplified, plain-language, no-graphs Streamlit app focused on clear leak detection.
-# It removes visual charts and conveys insights with short explanations, definitions, and step-by-step guidance.
-# File: /mnt/data/meta_ads_revenue_leak_report_plain.py
+# Create an updated single-file Streamlit app named streamlit_app.py
+# - No filesystem writes during runtime (all downloads are in-memory)
+# - No graphs; plain-language dashboard
+# - Branding (logo, colors, footer)
+# - Optional PDF export via ReportLab (if installed), with graceful fallback
+# - Clear leak sections with "Issue / Meaning / Why it matters / Estimate / What to do next"
+# - Same CSV schemas as before
 
 code = r'''
-# meta_ads_revenue_leak_report_plain.py
-# ------------------------------------
-# A neat, tidy, plain-language dashboard to spot Meta Ads revenue leaks.
-# - No graphs. Clean sections with concise explanations.
-# - Defines technical terms in simple language.
-# - Mirrors the "Leak #1" clarity for all features: Issue, What this means, Why it matters, How we estimated, What to do next.
+# streamlit_app.py
+# ----------------
+# Meta Ads Revenue Leak Finder — Plain Language, Branded, No Graphs
 #
-# How to run:
-#   pip install streamlit pandas numpy python-dateutil
-#   streamlit run meta_ads_revenue_leak_report_plain.py
+# How to run locally:
+#   pip install streamlit pandas numpy python-dateutil reportlab
+#   streamlit run streamlit_app.py
 
 import io
 from datetime import datetime, date
@@ -21,7 +22,19 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Meta Ads Revenue Leak Finder (Plain Language)", layout="wide")
+# Optional PDF export
+REPORTLAB_AVAILABLE = False
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except Exception:
+    REPORTLAB_AVAILABLE = False
+
+st.set_page_config(page_title="Meta Ads Revenue Leak Finder", layout="wide")
 
 # ------------------------
 # Helpers
@@ -83,9 +96,33 @@ def infer_period(meta_df, backend_df, web_df):
     end = max([d[1] for d in dates])
     return start, end
 
+def section_block(title, issue, means, matters, estimate=None, actions=None, note=None):
+    st.subheader(title)
+    st.write(f"**Issue (what we see):** {issue}")
+    st.write(f"**What this means (simple):** {means}")
+    st.write(f"**Why this matters (money/accuracy):** {matters}")
+    if estimate:
+        st.write(f"**Estimated impact:** {estimate}")
+    if actions:
+        st.write("**What to do next (step-by-step):**")
+        st.write(actions)
+    if note:
+        with st.expander("How we estimated this (details)"):
+            st.write(note)
+    st.markdown("---")
+
 # ------------------------
-# Sidebar
+# Sidebar — Branding & Inputs
 # ------------------------
+st.sidebar.title("Branding")
+agency_name = st.sidebar.text_input("Agency Name", "Your Agency Name")
+primary_hex = st.sidebar.color_picker("Primary Color", "#1F6FEB")
+secondary_hex = st.sidebar.color_picker("Secondary Color", "#111827")
+accent_hex = st.sidebar.color_picker("Accent Color", "#06B6D4")
+footer_text = st.sidebar.text_input("Footer Text", "© Your Agency Name — Confidential")
+logo_file = st.sidebar.file_uploader("Logo (PNG/JPG)", type=["png","jpg","jpeg"])
+
+st.sidebar.markdown("---")
 st.sidebar.title("Inputs")
 meta_file = st.sidebar.file_uploader("Meta Ads (CSV/XLSX)", type=["csv","xlsx"])
 backend_file = st.sidebar.file_uploader("Backend Orders (CSV/XLSX)", type=["csv","xlsx"])
@@ -95,7 +132,7 @@ pixel_file = st.sidebar.file_uploader("Pixel Events (optional)", type=["csv","xl
 st.sidebar.markdown("---")
 st.sidebar.title("Report Details")
 client_name = st.sidebar.text_input("Client/Brand Name", "Acme Co.")
-prepared_by = st.sidebar.text_input("Prepared By", "Your Agency Name")
+prepared_by = st.sidebar.text_input("Prepared By", agency_name)
 report_date = st.sidebar.date_input("Report Date", value=date.today())
 
 st.sidebar.markdown("---")
@@ -110,18 +147,39 @@ freq_high = st.sidebar.number_input("High Frequency threshold", value=5.0, step=
 min_spend_considered = st.sidebar.number_input("Min Spend to Consider (per ad)", value=50.0, step=10.0)
 
 # ------------------------
-# Load & sanitize
+# Header
+# ------------------------
+lcol, mcol, rcol = st.columns([1,3,1])
+with lcol:
+    if logo_file is not None:
+        logo_bytes = logo_file.read()
+        st.image(logo_bytes, caption=agency_name, use_column_width=True)
+    else:
+        logo_bytes = None
+with mcol:
+    st.markdown(f"<h2 style='color:{primary_hex};margin-bottom:0;'>Meta Ads Revenue Leak Finder</h2>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:{secondary_hex};'><b>Client:</b> {client_name} &nbsp;&nbsp; <b>Date:</b> {report_date}</div>", unsafe_allow_html=True)
+with rcol:
+    st.markdown(f"<div style='text-align:right;color:{accent_hex};'><b>Prepared by:</b><br>{prepared_by}</div>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ------------------------
+# Early stop if no Meta file
 # ------------------------
 if meta_file is None:
-    st.title("Meta Ads Revenue Leak Finder — Plain, No Graphs")
-    st.write("Upload your CSVs in the left sidebar. This dashboard speaks plain language and focuses on the 5 biggest leak areas.")
+    st.write("Upload your CSVs in the left sidebar. This dashboard uses simple language and lists the 5 biggest leak areas without any charts.")
     st.stop()
 
+# ------------------------
+# Load & sanitize
+# ------------------------
 meta_df = load_csv(meta_file, parse_dates=["date"])
 backend_df = load_csv(backend_file, parse_dates=["date"])
 web_df = load_csv(web_file, parse_dates=["date"])
 pixel_df = load_csv(pixel_file, parse_dates=["date"])
 
+# Ensure columns
 for col in ["date","campaign_name","adset_name","ad_name","objective","spend","impressions","clicks","ctr","frequency","purchases","revenue"]:
     if col not in meta_df.columns:
         meta_df[col] = np.nan
@@ -138,6 +196,7 @@ meta_df["adset_name"] = meta_df["adset_name"].fillna("")
 meta_df["ad_name"] = meta_df["ad_name"].fillna("")
 meta_df["audience_stage"] = meta_df["audience_stage"].fillna("") if "audience_stage" in meta_df.columns else ""
 
+# Backend
 if backend_df is not None:
     for col in ["date","orders","backend_revenue"]:
         if col not in backend_df.columns:
@@ -153,6 +212,7 @@ else:
     tmp["backend_revenue"] = tmp["orders"] * float(assumed_aov)
     backend_df = tmp[["date","orders","backend_revenue"]].copy()
 
+# Web
 if web_df is None:
     web_df = pd.DataFrame(columns=["date","device","sessions","conversion_rate","avg_page_load_time"])
 
@@ -167,7 +227,7 @@ backend_rev = float(backend_df["backend_revenue"].sum())
 tracking_diff = meta_rev - backend_rev
 tracking_diff_pct = (tracking_diff/backend_rev) if backend_rev > 0 else 0.0
 
-# Duplicate purchase detection (heuristic)
+# Duplicate purchase (heuristic)
 dup_ratio_text = "not enough data"
 if pixel_df is not None and len(pixel_df) > 0:
     purchases_events = pixel_df[pixel_df["event_name"].fillna("").str.lower().str.contains("purchase")]
@@ -225,6 +285,7 @@ if len(web_df) > 0 and "device" in web_df.columns:
     if "sessions" in web_df.columns:
         mobile_sessions = float(web_df.loc[web_df["device"].str.lower()=="mobile", "sessions"].astype(float).sum())
         desktop_sessions = float(web_df.loc[web_df["device"].str.lower()=="desktop", "sessions"].astype(float).sum())
+
 avg_page_load_mobile = None
 if "avg_page_load_time" in web_df.columns and "device" in web_df.columns:
     avg_page_load_mobile = web_df.loc[web_df["device"].str.lower()=="mobile", "avg_page_load_time"].astype(float).dropna().mean()
@@ -244,12 +305,22 @@ else:
             mobile_loss = backend_rev * mobile_share * 0.1
 
 # ------------------------
-# UI: Header
+# Simple Glossary
 # ------------------------
-st.title("Meta Ads Revenue Leak Finder — Plain Language")
-st.caption(f"Client: {client_name}  |  Period: {period_str}  |  Prepared by: {prepared_by}  |  Date: {report_date}")
+with st.expander("Simple Definitions (click to open)"):
+    st.markdown(f"""
+- **Conversion Rate (CR):** Out of 100 visitors, how many buy.
+- **CTR (Click-Through Rate):** Out of 100 people who saw the ad, how many clicked.
+- **Frequency:** On average, how many times each person saw your ad.
+- **BOFU / Retargeting:** Ads shown to people who already visited or added to cart — they're close to buying.
+- **Objective (Purchase vs others):** What Meta is trying to get for you. If you choose **Purchase**, Meta finds buyers. If you choose **Clicks**, Meta finds clickers.
+- **Audience Overlap:** Different ad sets chasing the same people at the same time (waste).
+- **AOV:** Average money made per order (here set to {money(assumed_aov)}).
+""")
 
-# KPIs (plain numbers; no charts)
+# ------------------------
+# KPIs (plain numbers)
+# ------------------------
 c1, c2, c3 = st.columns(3)
 c1.metric("Meta-reported Revenue", money(meta_rev))
 c2.metric("Backend Revenue (actual)", money(backend_rev))
@@ -258,46 +329,16 @@ c3.metric("Difference (Meta - Backend)", money(tracking_diff))
 st.markdown("---")
 
 # ------------------------
-# Glossary (simple language)
+# Leak Sections
 # ------------------------
-with st.expander("Simple Definitions (click to open)"):
-    st.markdown("""
-- **Conversion Rate (CR):** Out of 100 visitors, how many buy.
-- **CTR (Click-Through Rate):** Out of 100 people who saw the ad, how many clicked.
-- **Frequency:** On average, how many times each person saw your ad.
-- **BOFU / Retargeting:** Ads shown to people who already visited or added to cart — they're close to buying.
-- **Objective (Purchase vs others):** What Meta is trying to get for you. If you choose **Purchase**, Meta finds buyers. If you choose **Clicks**, Meta finds clickers (not always buyers).
-- **Audience Overlap:** When multiple ad sets target the same people; you pay to show ads to the same person more than once across different ad sets.
-- **AOV (Average Order Value):** Average money made per order.
-    """)
-
-# ------------------------
-# Leak Sections (no graphs, plain language)
-# ------------------------
-
-def leak_section(title, issue, means, matters, estimate, actions, note=None):
-    st.subheader(title)
-    st.write(f"**Issue (what we see):** {issue}")
-    st.write(f"**What this means (simple):** {means}")
-    st.write(f"**Why this matters (money/accuracy):** {matters}")
-    if estimate:
-        st.write(f"**Estimated impact:** {estimate}")
-    if actions:
-        st.write("**What to do next (step-by-step):**")
-        st.write(actions)
-    if note:
-        with st.expander("How we estimated this (details)"):
-            st.write(note)
-    st.markdown("---")
-
-# Leak 1: Tracking
 dup_line = f" Also, {dup_ratio_text}." if isinstance(dup_ratio_text, str) else ""
-leak_section(
+
+section_block(
     "Leak #1 — Tracking & Attribution",
     issue=f"Meta says {money(meta_rev)}; your backend says {money(backend_rev)}. The difference is {money(tracking_diff)} ({pct(tracking_diff_pct)}).{dup_line}",
-    means="Your reports may be inflating or missing sales. That makes decisions (like where to spend more) unreliable.",
+    means="Reports may be inflating or missing sales. That makes decisions (like where to spend more) unreliable.",
     matters="If the numbers are off, you might scale the wrong campaigns or cut the right ones.",
-    estimate="We treat this as a **risk** (not direct revenue). Fixing it prevents costly mistakes.",
+    estimate="We treat this as a risk (not direct revenue). Fixing it prevents costly mistakes.",
     actions="""
 1. Turn on **server-side Conversions API** (CAPI).
 2. Make sure **only one** Purchase event fires per order.
@@ -307,42 +348,38 @@ leak_section(
     note="Difference = Meta revenue minus backend revenue. Duplicate purchase events estimated when the same purchase ID appears multiple times."
 )
 
-# Leak 2: Objectives
-leak_section(
+section_block(
     "Leak #2 — Wrong Objectives in Retargeting",
     issue=f"About {pct(obj_misalignment_spend_pct)} of retargeting/BOFU spend is not set to **Purchase** optimization.",
     means="Meta may be finding people who click or add-to-cart instead of actual buyers.",
     matters="Money goes to actions that don't reliably produce sales.",
-    estimate=f"Recoverable revenue depends on your mix, but we expect a lift by shifting this spend to **Purchase**. A simple target is to move {pct(obj_misalignment_spend_pct)} of BOFU spend into Purchase optimization.",
-    actions="""
+    estimate=f"Shift this share of BOFU spend to **Purchase** to improve buying signals.",
+    actions=f"""
 1. Change all BOFU/retargeting campaigns to **Purchase** (or Sales/Conversions).
 2. Keep TOFU (prospecting) separate from MOFU/BOFU in your account.
 3. Move budget toward campaigns with proven purchases.
-""",
-    note="We flagged BOFU via audience_stage where available and retargeting keywords (retarget, DPA, catalog, etc.). We then checked if objective contained 'purchase/sales/conversions'."
+"""
 )
 
-# Leak 3: Creative fatigue
-leak_section(
+section_block(
     "Leak #3 — Tired Creatives (Low CTR + High Frequency)",
     issue=f"{pct(underperf_spend_pct)} of spend went to ads with low CTR (below {ctr_low:.2%}) and high Frequency (above {freq_high}), with enough spend to matter.",
     means="People have seen the same ad too often and stopped reacting, or the ad isn't compelling.",
     matters="You pay for impressions that don't move people to buy, dragging down results.",
-    estimate="A practical goal is to pause these ads and replace them. Expect CTR to lift and costs to stabilize when you refresh regularly.",
+    estimate="Pause these ads and replace them. Expect CTR to lift and costs to stabilize when you refresh regularly.",
     actions=f"""
-1. **Pause** identified underperformers (look for CTR < {ctr_low:.2%} and Frequency > {freq_high}).
+1. **Pause** identified underperformers (CTR < {ctr_low:.2%} and Frequency > {freq_high}).
 2. Launch **3 fresh formats**: a customer-style video (UGC), a quick product demo, and a clear offer.
-3. Set a simple rule: rotate creatives every **14 days** or when Frequency passes **{freq_high}**.
+3. Set a rule: rotate creatives every **14 days** or when Frequency passes **{freq_high}**.
 """
 )
 
-# Leak 4: Audience overlap
-leak_section(
+section_block(
     "Leak #4 — Audience Overlap (Paying Twice for the Same People)",
     issue=f"About {pct(overlap_spend_pct)} of spend is at risk from duplicated audiences across campaigns/ad sets.",
     means="Different ad sets are targeting the same people at the same time.",
     matters="You pay more to talk to the same person, instead of reaching new potential buyers.",
-    estimate="By adding exclusions, you reduce waste and redirect that budget to fresh audiences or best performers.",
+    estimate="By adding exclusions, you reduce waste and redirect budget to fresh audiences or best performers.",
     actions="""
 1. Add **mutual exclusions** between TOFU, MOFU, BOFU.
 2. Build **lookalikes** from your best buyers (high AOV) for prospecting.
@@ -351,19 +388,18 @@ leak_section(
     note="We looked for the same audience names used in multiple campaigns, which signals possible overlap."
 )
 
-# Leak 5: Mobile checkout
 lp_note = ""
 if (mobile_cr is not None) and (desktop_cr is not None):
-    lp_note = f"Mobile CR is {pct(mobile_cr)} vs Desktop CR {pct(desktop_cr)}."
+    lp_note = f"Mobile CR is {pct(mobile_cr)} vs Desktop CR {pct(desktop_cr)}. "
 if avg_page_load_mobile is not None:
-    lp_note += f" Average mobile page load around {avg_page_load_mobile:.2f}s."
+    lp_note += f"Average mobile page load around {avg_page_load_mobile:.2f}s."
 
-leak_section(
+section_block(
     "Leak #5 — Mobile Drop-offs (Slow Pages or Clunky Checkout)",
     issue=lp_note if lp_note else "Mobile conversion appears lower than desktop and/or mobile pages may be slow.",
     means="Even with good ads, people leave if pages load slowly or the checkout is hard to finish on a phone.",
     matters="You lose buyers where most traffic usually is: on mobile.",
-    estimate=f"Aim for mobile CR to be at least **{int(mobile_cr_target_factor*100)}%** of desktop CR. Closing that gap can add {money(mobile_loss)} per period (rough estimate).",
+    estimate=f"Aim for mobile CR to be at least **{int(mobile_cr_target_factor*100)}%** of desktop CR. Closing that gap can add about {money(mobile_loss)} for this period (rough estimate).",
     actions="""
 1. Compress images and use **lazy loading** to speed up pages (target under 2.5s).
 2. Keep checkout to **2 steps or fewer** on mobile.
@@ -372,7 +408,7 @@ leak_section(
 )
 
 # ------------------------
-# Final call-outs & download
+# Next Steps + Downloads
 # ------------------------
 st.subheader("Next Steps (Short and Clear)")
 st.markdown(f"""
@@ -383,7 +419,7 @@ st.markdown(f"""
 5. Speed up mobile pages and simplify checkout.
 """)
 
-# Build a simple text report for download
+# Build plain text report (in memory)
 report_text = f"""
 Meta Ads Revenue Leak Report — Plain Language
 Client: {client_name} | Period: {period_str} | Prepared by: {prepared_by} | Date: {report_date}
@@ -391,7 +427,7 @@ Client: {client_name} | Period: {period_str} | Prepared by: {prepared_by} | Date
 KPIs:
 - Meta revenue: {money(meta_rev)}
 - Backend revenue: {money(backend_rev)}
-- Difference: {money(tracking_diff)}
+- Difference: {money(tracking_diff)} ({pct(tracking_diff_pct)})
 
 Leak 1 — Tracking & Attribution
 - Issue: Meta {money(meta_rev)} vs Backend {money(backend_rev)} (Diff {money(tracking_diff)} / {pct(tracking_diff_pct)})
@@ -413,12 +449,14 @@ Leak 4 — Audience Overlap
 - Action: Add exclusions, seed lookalikes from best buyers, consider Advantage+
 
 Leak 5 — Mobile Drop-offs
-- Issue: {('Mobile vs Desktop CR gap; ' + lp_note) if lp_note else 'Mobile CR lower and/or slow pages'}
+- Issue: {lp_note if lp_note else 'Mobile CR lower and/or slow pages'}
 - Estimate: Potential gain ~ {money(mobile_loss)}
 - Action: Speed up pages (<2.5s), shorten checkout, match ad to landing page
 
 Next Steps:
 1) Fix tracking  2) Switch objectives  3) Refresh creatives  4) Add exclusions  5) Mobile UX
+
+{footer_text}
 """
 
 st.download_button(
@@ -427,8 +465,74 @@ st.download_button(
     file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_leak_report_plain.txt",
     mime="text/plain"
 )
+
+# Simple HTML download (branding applied)
+html_report = f"""
+<html>
+<head><meta charset="utf-8"><title>Meta Ads Revenue Leak Report</title></head>
+<body style="font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:40px auto;line-height:1.5;">
+<h1 style="color:{primary_hex};">Meta Ads Revenue Leak Report</h1>
+<p><b>Client:</b> {client_name} &nbsp; <b>Date:</b> {report_date} &nbsp; <b>Prepared by:</b> {prepared_by}</p>
+<hr/>
+<pre style="white-space:pre-wrap;">{report_text}</pre>
+<hr/>
+<div style="color:#666;">{footer_text}</div>
+</body></html>
+""".encode("utf-8")
+
+st.download_button(
+    "⬇️ Download Report (HTML)",
+    data=html_report,
+    file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_report.html",
+    mime="text/html"
+)
+
+# PDF download (in-memory) if ReportLab available
+def build_pdf(md_text, client_name, prepared_by, footer_text, logo_bytes=None):
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="H1", fontSize=18, leading=22, spaceAfter=8, textColor=colors.HexColor(primary_hex)))
+    styles.add(ParagraphStyle(name="Body", fontSize=10, leading=14))
+    styles.add(ParagraphStyle(name="Small", fontSize=8, leading=10, textColor=colors.grey))
+
+    story = []
+    if logo_bytes:
+        try:
+            story.append(RLImage(io.BytesIO(logo_bytes), width=60*mm, height=20*mm))
+            story.append(Spacer(1, 5*mm))
+        except Exception:
+            pass
+    story.append(Paragraph("Meta Ads Revenue Leak Report", styles["H1"]))
+    story.append(Paragraph(f"<b>Client:</b> {client_name} &nbsp;&nbsp; <b>Date:</b> {report_date} &nbsp;&nbsp; <b>Prepared by:</b> {prepared_by}", styles["Body"]))
+    story.append(Spacer(1, 5*mm))
+
+    # Add the plain text report as paragraphs
+    for block in md_text.split("\n\n"):
+        story.append(Paragraph(block.replace("\n", "<br/>"), styles["Body"]))
+        story.append(Spacer(1, 2*mm))
+
+    story.append(Spacer(1, 5*mm))
+    story.append(Paragraph(footer_text, styles["Small"]))
+    doc.build(story)
+    return buf.getvalue()
+
+if REPORTLAB_AVAILABLE:
+    pdf_bytes = build_pdf(report_text, client_name, prepared_by, footer_text, logo_bytes=logo_bytes)
+    st.download_button(
+        "⬇️ Download Report (PDF)",
+        data=pdf_bytes,
+        file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_report.pdf",
+        mime="application/pdf"
+    )
+else:
+    st.info("PDF export: install ReportLab with `pip install reportlab` to enable the PDF download.")
+
+# Footer note
+st.caption(footer_text)
 '''
-with open('/mnt/data/meta_ads_revenue_leak_report_plain.py', 'w', encoding='utf-8') as f:
+
+with open('/mnt/data/streamlit_app.py', 'w', encoding='utf-8') as f:
     f.write(code)
 
-'/mnt/data/meta_ads_revenue_leak_report_plain.py'
+'/mnt/data/streamlit_app.py'
