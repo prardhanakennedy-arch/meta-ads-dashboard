@@ -1,17 +1,8 @@
-# Create an updated single-file Streamlit app named streamlit_app.py
-# - No filesystem writes during runtime (all downloads are in-memory)
-# - No graphs; plain-language dashboard
-# - Branding (logo, colors, footer)
-# - Optional PDF export via ReportLab (if installed), with graceful fallback
-# - Clear leak sections with "Issue / Meaning / Why it matters / Estimate / What to do next"
-# - Same CSV schemas as before
-
-code = r'''
 # streamlit_app.py
 # ----------------
 # Meta Ads Revenue Leak Finder — Plain Language, Branded, No Graphs
 #
-# How to run locally:
+# How to run:
 #   pip install streamlit pandas numpy python-dateutil reportlab
 #   streamlit run streamlit_app.py
 
@@ -419,7 +410,7 @@ st.markdown(f"""
 5. Speed up mobile pages and simplify checkout.
 """)
 
-# Build plain text report (in memory)
+# Plain text report (in memory)
 report_text = f"""
 Meta Ads Revenue Leak Report — Plain Language
 Client: {client_name} | Period: {period_str} | Prepared by: {prepared_by} | Date: {report_date}
@@ -466,7 +457,7 @@ st.download_button(
     mime="text/plain"
 )
 
-# Simple HTML download (branding applied)
+# HTML download (branding applied)
 html_report = f"""
 <html>
 <head><meta charset="utf-8"><title>Meta Ads Revenue Leak Report</title></head>
@@ -507,7 +498,6 @@ def build_pdf(md_text, client_name, prepared_by, footer_text, logo_bytes=None):
     story.append(Paragraph(f"<b>Client:</b> {client_name} &nbsp;&nbsp; <b>Date:</b> {report_date} &nbsp;&nbsp; <b>Prepared by:</b> {prepared_by}", styles["Body"]))
     story.append(Spacer(1, 5*mm))
 
-    # Add the plain text report as paragraphs
     for block in md_text.split("\n\n"):
         story.append(Paragraph(block.replace("\n", "<br/>"), styles["Body"]))
         story.append(Spacer(1, 2*mm))
@@ -530,9 +520,3 @@ else:
 
 # Footer note
 st.caption(footer_text)
-'''
-
-with open('/mnt/data/streamlit_app.py', 'w', encoding='utf-8') as f:
-    f.write(code)
-
-'/mnt/data/streamlit_app.py'
