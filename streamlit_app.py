@@ -195,22 +195,28 @@ current_revenue = float(backend_rev if backend_rev and backend_rev>0 else ads_re
 # ------------------------
 from plotly import express as px
 
+# ---- KPI cards (fixed 4-tuple unpacking) ----
 kcol1, kcol2, kcol3, kcol4, kcol5, kcol6 = st.columns(6)
-for col, title, value, sub in [
+
+metrics = [
     (kcol1, "Clicks", f"{total_clicks:,}", ""),
     (kcol2, "Impressions", f"{total_impr:,}", ""),
-    (kcol3, "Average CPC", money(avg_cpc)),
-    (kcol4, "CTR", pct(overall_ctr)),
-    (kcol5, "Conversions/Purchases", f"{int(U['purchases'].sum()):,}"),
-    (kcol6, "Amount Spent", money(total_spend)),
-]:
+    (kcol3, "Average CPC", money(avg_cpc), ""),
+    (kcol4, "CTR", pct(overall_ctr), ""),
+    (kcol5, "Conversions/Purchases", f"{int(U['purchases'].sum()):,}", ""),
+    (kcol6, "Amount Spent", money(total_spend), ""),
+]
+
+for col, title, value, sub in metrics:
     with col:
         st.markdown(f"""
         <div class="card">
           <p class="kpi-title">{title}</p>
           <p class="kpi-value">{value}</p>
+          <p class="kpi-sub">{sub}</p>
         </div>
         """, unsafe_allow_html=True)
+
 
 st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 c1, c2, c3 = st.columns([2,2,2])
