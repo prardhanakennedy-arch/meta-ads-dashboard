@@ -20,7 +20,7 @@ try:
 except Exception:
     REPORTLAB_AVAILABLE = False
 
-st.set_page_config(page_title= "Wittelsbach AI Ad Revenue Leaks Report" )", layout="wide")
+st.set_page_config(page_title="Revenue Leak Finder (Plain, FOMO)", layout="wide")
 
 # ------------------------
 # Global styles (Poppins + cards)
