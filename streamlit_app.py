@@ -443,21 +443,39 @@ st.subheader("Revenue: Before vs After (Estimates)")
 st.table(bt.style.format({"Monthly Revenue":"${:,.0f}","Annual Revenue":"${:,.0f}"}))
 
 # =========================
-# Milestones (5 priority leaks) — add below your Before/After table
-# Requires: leaks, money_leaks, risk_leaks, current_revenue already computed
 # =========================
+# Milestones (5 priority leaks) — Redesigned UI (tabs + cards like screenshot)
+# =========================
+
+# ---- minimal CSS to mimic the look (Poppins already loaded above) ----
+st.markdown("""
+<style>
+  .pillbar {display:flex; gap:8px; margin:.5rem 0 1rem;}
+  .pill {padding:6px 12px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; color:#111827; font-size:13px;}
+  .cardx {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:16px; box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  .kpi {display:flex; flex-direction:column; gap:4px;}
+  .kpi .label {font-size:12px; color:#6b7280;}
+  .kpi .value {font-size:22px; font-weight:600;}
+  .badge-up {display:inline-block; padding:2px 8px; background:#ecfdf5; color:#059669; border-radius:999px; font-size:12px; margin-left:6px;}
+  .muted {color:#6b7280;}
+  .tiny {font-size:12px; color:#6b7280;}
+  .list-tight li {margin:2px 0;}
+  .tbl .row_heading, .tbl .blank {display:none;}
+</style>
+""", unsafe_allow_html=True)
+
 st.subheader("Milestone Plan — 5 Priority Leaks")
 
-# 1) Choose the 5 priority leaks in the order you want to execute
+# 1) Priority order (same names as your leak cards)
 priority_order = [
-    "Tracking/Reporting Mismatch",   # Phase 1 (risk control – not counted in $ but critical)
-    "Wrong Goal for Retargeting",    # Phase 2
-    "Tired/Weak Ads",                # Phase 3
-    "Paying Twice for the Same People",  # Phase 4
-    "Mobile Drop-offs",              # Phase 5
+    "Tracking/Reporting Mismatch",     # Phase 1 (risk control – not counted in $ but critical)
+    "Wrong Goal for Retargeting",      # Phase 2
+    "Tired/Weak Ads",                  # Phase 3
+    "Paying Twice for the Same People",# Phase 4
+    "Mobile Drop-offs",                # Phase 5
 ]
 
-# 2) Default durations (days) for each phase — tweak if you like
+# 2) Default durations (days)
 default_durations = {
     "Tracking/Reporting Mismatch": 3,
     "Wrong Goal for Retargeting": 1,
@@ -466,65 +484,124 @@ default_durations = {
     "Mobile Drop-offs": 14,
 }
 
-# 3) Map names -> leak dicts (so we can pull $ impact / notes already calculated)
+# 3) Build rows from your existing `leaks` list
 leak_by_name = {L["name"]: L for L in leaks}
-
-# 4) Build milestone rows with schedule (auto-sequenced)
 rows = []
-cursor = pd.Timestamp(date.today())  # start today
+cursor = pd.Timestamp(date.today())
 for idx, name in enumerate(priority_order, start=1):
-    L = leak_by_name.get(name, {
-        "name": name, "category": "—", "where": "—", "root": "—",
-        "impact": 0.0, "impact_note": "", "actions": []
-    })
-    duration_days = int(default_durations.get(name, 7))
+    L = leak_by_name.get(name, {"category":"—","where":"—","root":"—","impact":0.0,"actions":[]})
+    duration = int(default_durations.get(name, 7))
     start_dt = cursor
-    end_dt = cursor + pd.Timedelta(days=duration_days)
-    cursor = end_dt + pd.Timedelta(days=1)  # next phase starts after this one
+    end_dt   = cursor + pd.Timedelta(days=duration)
+    cursor   = end_dt + pd.Timedelta(days=1)
 
-    monthly_gain = float(max(0.0, L.get("impact", 0.0)))
-    annual_gain = monthly_gain * 12.0
+    monthly = float(max(0.0, L.get("impact", 0.0)))
+    annual  = monthly * 12.0
+    share   = (monthly / total_recoverable) if total_recoverable > 0 else 0.0
 
     rows.append({
         "Phase": f"{idx}. {name}",
-        "Type": L.get("category", "—"),
-        "Where": L.get("where", "—"),
-        "Root cause": L.get("root", "—"),
-        "Est. Monthly Recovery": monthly_gain,
-        "Est. Annual Recovery": annual_gain,
-        "Duration (days)": duration_days,
+        "Name": name,
+        "Type": L.get("category","—"),
+        "Where": L.get("where","—"),
+        "Root cause": L.get("root","—"),
+        "Monthly Recovery": monthly,
+        "Annual Recovery": annual,
+        "% of Total": share,
+        "Duration (days)": duration,
         "Start": start_dt.date(),
         "Due": end_dt.date(),
+        "Actions": L.get("actions", []),
+        "Note": L.get("impact_note",""),
     })
 
 milestones_df = pd.DataFrame(rows)
 
-# 5) Show total recovery (only money-leaks are counted)
-phased_total_monthly = float(sum(r["Est. Monthly Recovery"] for r in rows))
-phased_total_annual = phased_total_monthly * 12.0
-st.markdown(f"**Total recoverable across phases (est.):** ${phased_total_monthly:,.0f} / month  |  ${phased_total_annual:,.0f} / year")
+# ---- OVERVIEW header pills (purely visual, tabs are below) ----
+st.markdown('<div class="pillbar">'
+            '<span class="pill">Overview</span>'
+            '<span class="pill">Phase 1</span>'
+            '<span class="pill">Phase 2</span>'
+            '<span class="pill">Phase 3</span>'
+            '<span class="pill">Phase 4</span>'
+            '<span class="pill">Phase 5</span>'
+            '</div>', unsafe_allow_html=True)
 
-# 6) Display milestones in a neat table (keeps your Poppins styling)
-st.table(
-    milestones_df.style.format({
-        "Est. Monthly Recovery": "${:,.0f}",
-        "Est. Annual Recovery": "${:,.0f}",
-        "Duration (days)": "{:,.0f}",
-    })
-)
+# ---- Overview KPI cards ----
+t1, t2, t3 = st.columns(3)
+total_monthly = float(milestones_df["Monthly Recovery"].sum())
+total_annual  = float(milestones_df["Annual Recovery"].sum())
+total_days    = int(milestones_df["Duration (days)"].sum())
 
-# 7) Optional: quick action list under each milestone (reuse your existing actions text)
-with st.expander("See step-by-step actions for each phase"):
-    for r in rows:
-        L = leak_by_name.get(r["Phase"].split(". ",1)[1])
-        st.markdown(f"**{r['Phase']}**  \n*Window:* {r['Start']} → {r['Due']}")
-        if L and L.get("actions"):
-            st.markdown("\n".join([f"- {a}" for a in L["actions"]]))
-        if L and L.get("impact_note"):
-            st.caption(f"Note: {L['impact_note']}")
-        st.markdown("---")
+with t1:
+    st.markdown(f'<div class="cardx kpi"><span class="label">Estimated recovery this month</span>'
+                f'<span class="value">${total_monthly:,.0f}</span>'
+                f'</div>', unsafe_allow_html=True)
+with t2:
+    st.markdown(f'<div class="cardx kpi"><span class="label">Annualized recovery</span>'
+                f'<span class="value">${total_annual:,.0f}</span>'
+                f'</div>', unsafe_allow_html=True)
+with t3:
+    st.markdown(f'<div class="cardx kpi"><span class="label">Total execution window</span>'
+                f'<span class="value">{total_days} days</span>'
+                f'<span class="tiny muted">Phases run back-to-back from today</span>'
+                f'</div>', unsafe_allow_html=True)
 
-# 8) Download milestones (Markdown)
+st.markdown("")
+
+# ---- Tabs: Overview + one tab per phase ----
+tab_labels = ["Overview"] + [r["Phase"] for r in rows]
+tabs = st.tabs(tab_labels)
+
+# OVERVIEW TAB (table like screenshot)
+with tabs[0]:
+    st.markdown("**Roadmap this week**")
+    show_cols = ["Phase","Type","Where","Monthly Recovery","Duration (days)","Start","Due"]
+    st.markdown('<div class="cardx">', unsafe_allow_html=True)
+    st.table(
+        milestones_df[show_cols].style.format({
+            "Monthly Recovery": "${:,.0f}",
+            "Duration (days)": "{:,.0f}"
+        }).set_table_attributes('class="tbl"')
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# PHASE TABS
+for i, r in enumerate(rows, start=1):
+    with tabs[i]:
+        pcol1, pcol2, pcol3 = st.columns([2,1,1])
+        with pcol1:
+            st.markdown(f'<div class="cardx"><div class="kpi">'
+                        f'<span class="label">Leak</span>'
+                        f'<span class="value">{r["Name"]}</span>'
+                        f'<span class="tiny muted">{r["Type"]} • {r["Where"]}</span>'
+                        f'</div></div>', unsafe_allow_html=True)
+        with pcol2:
+            st.markdown(f'<div class="cardx kpi"><span class="label">Monthly recovery</span>'
+                        f'<span class="value">${r["Monthly Recovery"]:,.0f}'
+                        f'<span class="badge-up">{r["% of Total"]*100:,.0f}% of total</span></span>'
+                        f'</div>', unsafe_allow_html=True)
+        with pcol3:
+            st.markdown(f'<div class="cardx kpi"><span class="label">Duration</span>'
+                        f'<span class="value">{int(r["Duration (days)"])} days</span>'
+                        f'<span class="tiny muted">{r["Start"]} → {r["Due"]}</span>'
+                        f'</div>', unsafe_allow_html=True)
+
+        st.markdown("")
+        st.markdown("**Root cause**")
+        st.markdown(f'<div class="cardx">{r["Root cause"]}</div>', unsafe_allow_html=True)
+
+        st.markdown("**What to do this phase**")
+        st.markdown('<div class="cardx">', unsafe_allow_html=True)
+        if r["Actions"]:
+            st.markdown("\n".join([f"- {a}" for a in r["Actions"]]), unsafe_allow_html=True)
+        else:
+            st.markdown("- Actions will appear here when available.")
+        if r["Note"]:
+            st.caption(r["Note"])
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ---- Download milestones as Markdown (unchanged logic) ----
 milestones_md = ["# Milestones — 5 Priority Leaks\n"]
 for r in rows:
     milestones_md += [
@@ -532,8 +609,8 @@ for r in rows:
         f"- Type: {r['Type']}",
         f"- Where: {r['Where']}",
         f"- Root cause: {r['Root cause']}",
-        f"- Est. monthly recovery: ${r['Est. Monthly Recovery']:,.0f}",
-        f"- Est. annual recovery: ${r['Est. Annual Recovery']:,.0f}",
+        f"- Est. monthly recovery: ${r['Monthly Recovery']:,.0f}",
+        f"- Est. annual recovery: ${r['Annual Recovery']:,.0f}",
         f"- Duration: {int(r['Duration (days)'])} days",
         f"- Start → Due: {r['Start']} → {r['Due']}",
         ""
