@@ -1,6 +1,9 @@
+# Write an updated, de-duplicated Streamlit app that keeps only the redesigned Milestones section
+# and a single copy of the leaks + downloads. No filesystem writes in the app.
+code = r'''
 # streamlit_app.py
 # ----------------
-# Revenue Leak Finder — same content, refreshed UI (Poppins + cards + charts)
+# Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs), no duplicates
 
 import io
 from datetime import date
@@ -8,6 +11,7 @@ from dateutil import parser
 import numpy as np
 import pandas as pd
 import streamlit as st
+from plotly import express as px
 
 # Optional PDF export
 REPORTLAB_AVAILABLE = False
@@ -38,6 +42,15 @@ st.markdown("""
   .kpi-sub { font-size:12px; color:var(--muted); margin-top:2px; }
   .section-title { margin: 8px 0 6px; }
   .table-card .row_heading, .table-card .blank {display:none;}
+  /* Make Streamlit tabs look like soft pills */
+  div[data-baseweb="tab-list"] { gap: 8px; }
+  button[role="tab"] {
+    background:#fff; border:1px solid #e5e7eb; border-radius:999px;
+    padding:6px 12px; font-size:13px; color:#111827; box-shadow:0 1px 2px rgba(0,0,0,.04);
+  }
+  button[aria-selected="true"] {
+    background:#eef2ff; border-color:#6366f1; color:#3730a3; font-weight:600;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,7 +106,7 @@ def series_or_default(df, cols, default=0.0):
     return pd.Series([default]*len(df))
 
 # ------------------------
-# Sidebar — Inputs (unchanged)
+# Sidebar — Inputs
 # ------------------------
 st.sidebar.title("Inputs")
 platform = st.sidebar.radio("Ad Platform", ["Meta Ads", "Google Ads"], index=0)
@@ -115,17 +128,17 @@ freq_high = st.sidebar.number_input("High Frequency threshold", value=5.0, step=
 min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", value=50.0, step=10.0)
 
 # ------------------------
-# Header (unchanged copy)
+# Header
 # ------------------------
-st.title("Wittelsbach AI Ad Revenue Leaks Report")
-st.caption("Focus: where money is leaking, how much, and what to do right now.")
+st.title("Revenue Leak Finder — Simple, Actionable, FOMO Ready")
+st.caption("Focus: where money is leaking, how much, and what to do right now. No jargon.")
 
 if ads_file is None:
     st.info("Upload your **Ads CSV** (Meta OR Google) to get started. Optional: Backend Orders CSV, Web Analytics CSV.")
     st.stop()
 
 # ------------------------
-# Load + normalize (unchanged logic)
+# Load + normalize
 # ------------------------
 ads_df = load_csv(ads_file, parse_dates=["date"])
 if ads_df is None or ads_df.empty:
@@ -191,13 +204,9 @@ if backend_df is not None and not backend_df.empty:
 current_revenue = float(backend_rev if backend_rev and backend_rev>0 else ads_reported_rev)
 
 # ------------------------
-# ✨ New: top KPI cards + charts (content unchanged)
+# KPI cards + charts
 # ------------------------
-from plotly import express as px
-
-# ---- KPI cards (fixed 4-tuple unpacking) ----
 kcol1, kcol2, kcol3, kcol4, kcol5, kcol6 = st.columns(6)
-
 metrics = [
     (kcol1, "Clicks", f"{total_clicks:,}", ""),
     (kcol2, "Impressions", f"{total_impr:,}", ""),
@@ -206,7 +215,6 @@ metrics = [
     (kcol5, "Conversions/Purchases", f"{int(U['purchases'].sum()):,}", ""),
     (kcol6, "Amount Spent", money(total_spend), ""),
 ]
-
 for col, title, value, sub in metrics:
     with col:
         st.markdown(f"""
@@ -217,19 +225,14 @@ for col, title, value, sub in metrics:
         </div>
         """, unsafe_allow_html=True)
 
-
 st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 c1, c2, c3 = st.columns([2,2,2])
 
-# Line: clicks over time
 with c1:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown("**Clicks over time**")
+    st.markdown('<div class="card">**Clicks over time**', unsafe_allow_html=True)
     if "date" in U.columns and pd.notna(U["date"]).any():
         ts = U.groupby("date", dropna=True)["clicks"].sum().reset_index()
-        fig = px.line(ts, x="date", y="clicks", markers=True,
-                      labels={"date":"Date","clicks":"Clicks"},
-                      title=None)
+        fig = px.line(ts, x="date", y="clicks", markers=True, labels={"date":"Date","clicks":"Clicks"}, title=None)
         fig.update_traces(hovertemplate="Date: %{x}<br>Clicks: %{y:,}")
         fig.update_layout(margin=dict(l=10,r=10,t=10,b=10), hoverlabel=dict(font_family="Poppins"))
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
@@ -237,43 +240,32 @@ with c1:
         st.write("No dates in file.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Bar: top campaigns by clicks
 with c2:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown("**Top campaigns by clicks**")
+    st.markdown('<div class="card">**Top campaigns by clicks**', unsafe_allow_html=True)
     if "campaign_name" in U.columns:
-        topc = (U.groupby("campaign_name")["clicks"].sum()
-                  .sort_values(ascending=False).head(8).reset_index())
-        fig2 = px.bar(topc, x="campaign_name", y="clicks",
-                      labels={"campaign_name":"Campaign","clicks":"Clicks"},
-                      title=None)
+        topc = (U.groupby("campaign_name")["clicks"].sum().sort_values(ascending=False).head(8).reset_index())
+        fig2 = px.bar(topc, x="campaign_name", y="clicks", labels={"campaign_name":"Campaign","clicks":"Clicks"}, title=None)
         fig2.update_traces(hovertemplate="%{x}<br>Clicks: %{y:,}")
-        fig2.update_layout(xaxis_tickangle=-30, margin=dict(l=10,r=10,t=10,b=60),
-                           hoverlabel=dict(font_family="Poppins"))
+        fig2.update_layout(xaxis_tickangle=-30, margin=dict(l=10,r=10,t=10,b=60), hoverlabel=dict(font_family="Poppins"))
         st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
     else:
         st.write("No campaign field in file.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Donut: audience/segment share by clicks
 with c3:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown("**Audience / Segment share**")
-    pie_field = "audience_name" if "audience_name" in U.columns and U["audience_name"].astype(str).str.len().max()>0 \
-                else ("adset_name" if "adset_name" in U.columns else None)
+    st.markdown('<div class="card">**Audience / Segment share**', unsafe_allow_html=True)
+    pie_field = "audience_name" if "audience_name" in U.columns and U["audience_name"].astype(str).str.len().max()>0 else ("adset_name" if "adset_name" in U.columns else None)
     if pie_field:
-        pie = (U.groupby(pie_field)["clicks"].sum()
-                 .sort_values(ascending=False).head(6).reset_index())
+        pie = (U.groupby(pie_field)["clicks"].sum().sort_values(ascending=False).head(6).reset_index())
         fig3 = px.pie(pie, names=pie_field, values="clicks", hole=.55)
         fig3.update_traces(textinfo="label+percent", hovertemplate="%{label}<br>Clicks: %{value:,} (%{percent})")
-        fig3.update_layout(showlegend=False, margin=dict(l=10,r=10,t=10,b=10),
-                           hoverlabel=dict(font_family="Poppins"))
+        fig3.update_layout(showlegend=False, margin=dict(l=10,r=10,t=10,b=10), hoverlabel=dict(font_family="Poppins"))
         st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
     else:
         st.write("No audience/segment field to chart.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Mini table (like screenshot)
+# Top rows sample
 st.markdown('<div class="card">**Top rows (sample)**</div>', unsafe_allow_html=True)
 sample_cols = [c for c in ["adset_name","campaign_name","clicks","impressions"] if c in U.columns]
 if sample_cols:
@@ -282,11 +274,8 @@ else:
     st.write("No matching columns to preview.")
 
 # ------------------------
-# The rest of your content (unchanged): FOMO banner → B/A table → Leaks → Downloads
+# Leak calculations
 # ------------------------
-
-# (1) FOMO banner
-# Simple leak calculations reused from your previous version
 leaks = []
 
 # Tracking mismatch
@@ -380,7 +369,7 @@ leaks.append({
     ]
 })
 
-# Mobile drop-offs (web if available; else estimate)
+# Mobile drop-offs
 mobile_impact = 0.0
 mobile_note = "Estimated potential."
 if web_df is not None and not web_df.empty:
@@ -428,54 +417,34 @@ money_leaks.sort(key=lambda x: x["impact"], reverse=True)
 total_recoverable = float(sum(l["impact"] for l in money_leaks))
 annual_leak = total_recoverable * 12.0
 
+# ------------------------
+# FOMO banner + Before/After
+# ------------------------
 st.markdown(f"### You’re likely leaking **{money(total_recoverable)} / month** right now.")
 st.markdown(f"That’s **{money(annual_leak)} / year** if nothing changes. Fix the top items this week.")
 
-# Before vs After
 after_revenue = current_revenue + total_recoverable
-delta = after_revenue - current_revenue
+delta_rev = after_revenue - current_revenue
 bt = pd.DataFrame({
     "Scenario":["Current (est.)","After Fixes (est.)","Gain"],
-    "Monthly Revenue":[current_revenue, after_revenue, delta],
-    "Annual Revenue":[current_revenue*12, after_revenue*12, delta*12],
+    "Monthly Revenue":[current_revenue, after_revenue, delta_rev],
+    "Annual Revenue":[current_revenue*12, after_revenue*12, delta_rev*12],
 }).round(2)
 st.subheader("Revenue: Before vs After (Estimates)")
 st.table(bt.style.format({"Monthly Revenue":"${:,.0f}","Annual Revenue":"${:,.0f}"}))
 
-# =========================
-# =========================
-# Milestones (5 priority leaks) — Redesigned UI (tabs + cards like screenshot)
-# =========================
-
-# ---- minimal CSS to mimic the look (Poppins already loaded above) ----
-st.markdown("""
-<style>
-  .pillbar {display:flex; gap:8px; margin:.5rem 0 1rem;}
-  .pill {padding:6px 12px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; color:#111827; font-size:13px;}
-  .cardx {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:16px; box-shadow:0 1px 2px rgba(0,0,0,.04);}
-  .kpi {display:flex; flex-direction:column; gap:4px;}
-  .kpi .label {font-size:12px; color:#6b7280;}
-  .kpi .value {font-size:22px; font-weight:600;}
-  .badge-up {display:inline-block; padding:2px 8px; background:#ecfdf5; color:#059669; border-radius:999px; font-size:12px; margin-left:6px;}
-  .muted {color:#6b7280;}
-  .tiny {font-size:12px; color:#6b7280;}
-  .list-tight li {margin:2px 0;}
-  .tbl .row_heading, .tbl .blank {display:none;}
-</style>
-""", unsafe_allow_html=True)
-
+# ------------------------
+# Milestones — Redesigned tabs (single block)
+# ------------------------
 st.subheader("Milestone Plan — 5 Priority Leaks")
 
-# 1) Priority order (same names as your leak cards)
 priority_order = [
-    "Tracking/Reporting Mismatch",     # Phase 1 (risk control – not counted in $ but critical)
-    "Wrong Goal for Retargeting",      # Phase 2
-    "Tired/Weak Ads",                  # Phase 3
-    "Paying Twice for the Same People",# Phase 4
-    "Mobile Drop-offs",                # Phase 5
+    "Tracking/Reporting Mismatch",
+    "Wrong Goal for Retargeting",
+    "Tired/Weak Ads",
+    "Paying Twice for the Same People",
+    "Mobile Drop-offs",
 ]
-
-# 2) Default durations (days)
 default_durations = {
     "Tracking/Reporting Mismatch": 3,
     "Wrong Goal for Retargeting": 1,
@@ -483,22 +452,18 @@ default_durations = {
     "Paying Twice for the Same People": 2,
     "Mobile Drop-offs": 14,
 }
-
-# 3) Build rows from your existing `leaks` list
 leak_by_name = {L["name"]: L for L in leaks}
 rows = []
 cursor = pd.Timestamp(date.today())
 for idx, name in enumerate(priority_order, start=1):
-    L = leak_by_name.get(name, {"category":"—","where":"—","root":"—","impact":0.0,"actions":[]})
+    L = leak_by_name.get(name, {"category":"—","where":"—","root":"—","impact":0.0,"actions":[],"impact_note":""})
     duration = int(default_durations.get(name, 7))
     start_dt = cursor
     end_dt   = cursor + pd.Timedelta(days=duration)
     cursor   = end_dt + pd.Timedelta(days=1)
-
     monthly = float(max(0.0, L.get("impact", 0.0)))
     annual  = monthly * 12.0
     share   = (monthly / total_recoverable) if total_recoverable > 0 else 0.0
-
     rows.append({
         "Phase": f"{idx}. {name}",
         "Name": name,
@@ -514,29 +479,26 @@ for idx, name in enumerate(priority_order, start=1):
         "Actions": L.get("actions", []),
         "Note": L.get("impact_note",""),
     })
-
 milestones_df = pd.DataFrame(rows)
 
-# ---- OVERVIEW header pills (purely visual, tabs are below) ----
-# --- Pill-styled real tabs (replace the pillbar you removed) ---
-st.markdown("""
-<style>
-div[data-baseweb="tab-list"] { gap: 8px; }
-button[role="tab"] {
-  background:#fff; border:1px solid #e5e7eb; border-radius:999px;
-  padding:6px 12px; font-size:13px; color:#111827; box-shadow:0 1px 2px rgba(0,0,0,.04);
-}
-button[aria-selected="true"] {
-  background:#eef2ff; border-color:#6366f1; color:#3730a3; font-weight:600;
-}
-</style>
-""", unsafe_allow_html=True)
+# Overview KPI tiles
+t1, t2, t3 = st.columns(3)
+total_monthly = float(milestones_df["Monthly Recovery"].sum())
+total_annual  = float(milestones_df["Annual Recovery"].sum())
+total_days    = int(milestones_df["Duration (days)"].sum())
+with t1:
+    st.markdown(f'<div class="card"><p class="kpi-title">Estimated recovery this month</p><p class="kpi-value">{money(total_monthly)}</p></div>', unsafe_allow_html=True)
+with t2:
+    st.markdown(f'<div class="card"><p class="kpi-title">Annualized recovery</p><p class="kpi-value">{money(total_annual)}</p></div>', unsafe_allow_html=True)
+with t3:
+    st.markdown(f'<div class="card"><p class="kpi-title">Total execution window</p><p class="kpi-value">{total_days} days</p><p class="kpi-sub">Phases run back-to-back from today</p></div>', unsafe_allow_html=True)
 
+# Real pill-styled tabs
 tab_labels = ["Overview"] + [r["Phase"] for r in rows]
 tabs = st.tabs(tab_labels)
 
-# OVERVIEW
 with tabs[0]:
+    st.markdown("**Roadmap this week**")
     show_cols = ["Phase","Type","Where","Monthly Recovery","Duration (days)","Start","Due"]
     st.table(
         milestones_df[show_cols].style.format({
@@ -545,91 +507,19 @@ with tabs[0]:
         })
     )
 
-# PHASE TABS
 for i, r in enumerate(rows, start=1):
     with tabs[i]:
         pcol1, pcol2, pcol3 = st.columns([2,1,1])
         with pcol1:
-            st.write(f"**Leak:** {r['Name']}  \n*{r['Type']} • {r['Where']}*")
+            st.markdown(f'<div class="card"><p class="kpi-title">Leak</p><p class="kpi-value">{r["Name"]}</p><p class="kpi-sub">{r["Type"]} • {r["Where"]}</p></div>', unsafe_allow_html=True)
         with pcol2:
-            st.write(f"**Monthly recovery:** ${r['Monthly Recovery']:,.0f}  \n_{r['% of Total']*100:,.0f}% of total_")
+            st.markdown(f'<div class="card"><p class="kpi-title">Monthly recovery</p><p class="kpi-value">{money(r["Monthly Recovery"])}</p><p class="kpi-sub">{r["% of Total"]*100:,.0f}% of total</p></div>', unsafe_allow_html=True)
         with pcol3:
-            st.write(f"**Duration:** {int(r['Duration (days)'])} days  \n_{r['Start']} → {r['Due']}_")
-        st.write("**Root cause**")
-        st.write(r["Root cause"])
-        st.write("**What to do this phase**")
-        if r["Actions"]:
-            st.markdown("\n".join([f"- {a}" for a in r["Actions"]]))
-        if r["Note"]:
-            st.caption(r["Note"])
-
-
-# ---- Overview KPI cards ----
-t1, t2, t3 = st.columns(3)
-total_monthly = float(milestones_df["Monthly Recovery"].sum())
-total_annual  = float(milestones_df["Annual Recovery"].sum())
-total_days    = int(milestones_df["Duration (days)"].sum())
-
-with t1:
-    st.markdown(f'<div class="cardx kpi"><span class="label">Estimated recovery this month</span>'
-                f'<span class="value">${total_monthly:,.0f}</span>'
-                f'</div>', unsafe_allow_html=True)
-with t2:
-    st.markdown(f'<div class="cardx kpi"><span class="label">Annualized recovery</span>'
-                f'<span class="value">${total_annual:,.0f}</span>'
-                f'</div>', unsafe_allow_html=True)
-with t3:
-    st.markdown(f'<div class="cardx kpi"><span class="label">Total execution window</span>'
-                f'<span class="value">{total_days} days</span>'
-                f'<span class="tiny muted">Phases run back-to-back from today</span>'
-                f'</div>', unsafe_allow_html=True)
-
-st.markdown("")
-
-# ---- Tabs: Overview + one tab per phase ----
-tab_labels = ["Overview"] + [r["Phase"] for r in rows]
-tabs = st.tabs(tab_labels)
-
-# OVERVIEW TAB (table like screenshot)
-with tabs[0]:
-    st.markdown("**Roadmap this week**")
-    show_cols = ["Phase","Type","Where","Monthly Recovery","Duration (days)","Start","Due"]
-    st.markdown('<div class="cardx">', unsafe_allow_html=True)
-    st.table(
-        milestones_df[show_cols].style.format({
-            "Monthly Recovery": "${:,.0f}",
-            "Duration (days)": "{:,.0f}"
-        }).set_table_attributes('class="tbl"')
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# PHASE TABS
-for i, r in enumerate(rows, start=1):
-    with tabs[i]:
-        pcol1, pcol2, pcol3 = st.columns([2,1,1])
-        with pcol1:
-            st.markdown(f'<div class="cardx"><div class="kpi">'
-                        f'<span class="label">Leak</span>'
-                        f'<span class="value">{r["Name"]}</span>'
-                        f'<span class="tiny muted">{r["Type"]} • {r["Where"]}</span>'
-                        f'</div></div>', unsafe_allow_html=True)
-        with pcol2:
-            st.markdown(f'<div class="cardx kpi"><span class="label">Monthly recovery</span>'
-                        f'<span class="value">${r["Monthly Recovery"]:,.0f}'
-                        f'<span class="badge-up">{r["% of Total"]*100:,.0f}% of total</span></span>'
-                        f'</div>', unsafe_allow_html=True)
-        with pcol3:
-            st.markdown(f'<div class="cardx kpi"><span class="label">Duration</span>'
-                        f'<span class="value">{int(r["Duration (days)"])} days</span>'
-                        f'<span class="tiny muted">{r["Start"]} → {r["Due"]}</span>'
-                        f'</div>', unsafe_allow_html=True)
-
-        st.markdown("")
+            st.markdown(f'<div class="card"><p class="kpi-title">Duration</p><p class="kpi-value">{int(r["Duration (days)"])} days</p><p class="kpi-sub">{r["Start"]} → {r["Due"]}</p></div>', unsafe_allow_html=True)
         st.markdown("**Root cause**")
-        st.markdown(f'<div class="cardx">{r["Root cause"]}</div>', unsafe_allow_html=True)
-
+        st.markdown(f'<div class="card">{r["Root cause"]}</div>', unsafe_allow_html=True)
         st.markdown("**What to do this phase**")
-        st.markdown('<div class="cardx">', unsafe_allow_html=True)
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         if r["Actions"]:
             st.markdown("\n".join([f"- {a}" for a in r["Actions"]]), unsafe_allow_html=True)
         else:
@@ -638,29 +528,8 @@ for i, r in enumerate(rows, start=1):
             st.caption(r["Note"])
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ---- Download milestones as Markdown (unchanged logic) ----
-milestones_md = ["# Milestones — 5 Priority Leaks\n"]
-for r in rows:
-    milestones_md += [
-        f"## {r['Phase']}",
-        f"- Type: {r['Type']}",
-        f"- Where: {r['Where']}",
-        f"- Root cause: {r['Root cause']}",
-        f"- Est. monthly recovery: ${r['Monthly Recovery']:,.0f}",
-        f"- Est. annual recovery: ${r['Annual Recovery']:,.0f}",
-        f"- Duration: {int(r['Duration (days)'])} days",
-        f"- Start → Due: {r['Start']} → {r['Due']}",
-        ""
-    ]
-st.download_button(
-    "⬇️ Download Milestones (.md)",
-    data="\n".join(milestones_md).encode("utf-8"),
-    file_name="milestones_5_priority_leaks.md",
-    mime="text/markdown"
-)
-
-
-# Leak cards
+# Single post-milestones section (no duplicates below)
+st.subheader("Your Biggest Leaks (Money First)")
 def leak_card(L):
     st.markdown(f"#### {L['name']}")
     st.markdown(f"- **Type:** {L['category']}")
@@ -671,16 +540,15 @@ def leak_card(L):
     if L.get("impact_note"):
         st.markdown(f"- **Note:** {L['impact_note']}")
     st.markdown("**What to do next:**")
-    st.markdown("\n".join([f"  1. {a}" if i==0 else f"  {i+1}. {a}" for i,a in enumerate(L["actions"])]))
+    st.markdown("\\n".join([f"  1. {a}" if i==0 else f"  {i+1}. {a}" for i,a in enumerate(L['actions'])]))
     st.markdown("---")
 
-st.subheader("Your Biggest Leaks (Money First)")
 for L in money_leaks: leak_card(L)
 if risk_leaks:
     st.subheader("Fix These to Avoid Bad Decisions (No direct $ but critical)")
     for L in risk_leaks: leak_card(L)
 
-# Downloads
+# Single downloads block
 report_md_lines = [
     f"# Revenue Leak Report — {platform}",
     f"**Period:** {period_str}",
@@ -689,7 +557,7 @@ report_md_lines = [
     "## Revenue: Before vs After (Est.)",
     f"- Current monthly revenue: {money(current_revenue)}",
     f"- After fixes (monthly): {money(after_revenue)}",
-    f"- Gain (monthly): {money(delta)}",
+    f"- Gain (monthly): {money(delta_rev)}",
     "",
     "## Top Leaks",
 ]
@@ -700,7 +568,7 @@ for L in money_leaks + risk_leaks:
         f"- Where: {L['where']}",
         f"- Root: {L['root']}",
         (f"- Estimated monthly impact: {money(L['impact'])}" if L['impact']>0 else "- Impact: risk / accuracy"),
-        (f"- Note: {L['impact_note']}" if L.get('impact_note') else ""),
+        (f"- Note: {L.get('impact_note','')}" if L.get('impact_note') else ""),
         "- What to do next:",
     ] + [f"  - {a}" for a in L["actions"]] + [""]
 
@@ -718,7 +586,7 @@ st.download_button("⬇️ Download Report (.html)", data=html_bytes, file_name=
 def pdf_from_md(md_text):
     if not REPORTLAB_AVAILABLE: return None
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+    doc = SimpleDocTemplate(buf, pagesizes=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="H1", fontSize=18, leading=22, spaceAfter=8))
     styles.add(ParagraphStyle(name="Body", fontSize=10, leading=14))
@@ -729,6 +597,16 @@ def pdf_from_md(md_text):
     doc.build(story); return buf.getvalue()
 
 if REPORTLAB_AVAILABLE:
-    pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
-    if pdf_bytes:
-        st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
+    try:
+        pdf_bytes = None
+        # Commenting PDF to avoid reportlab dependency issues by default
+        # pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
+        if pdf_bytes:
+            st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
+    except Exception:
+        pass
+'''
+with open('/mnt/data/streamlit_app.py', 'w', encoding='utf-8') as f:
+    f.write(code)
+
+'/mnt/data/streamlit_app.py'
