@@ -1,315 +1,396 @@
-# streamlit_app.py — AI-Powered Revenue Leak Report (USD-only, investor-ready)
+# Requirements: streamlit, pandas, numpy, plotly
+# Run with: streamlit run streamlit_app.py
 
-import re
-import numpy as np
-import pandas as pd
 import streamlit as st
-import plotly.graph_objects as go
+import pandas as pd
+import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import warnings
+warnings.filterwarnings('ignore')
 
-# ---------- Page ----------
-st.set_page_config(page_title="AI Revenue Leak Report", page_icon="📊", layout="wide")
-st.title("📊 AI-Powered Revenue Leak Report")
+# Page config
+st.set_page_config(page_title="Revenue Leak Report", layout="wide", initial_sidebar_state="expanded")
 
-# ---------- Sidebar ----------
-with st.sidebar:
-    st.header("Upload CSV")
-    up = st.file_uploader("Drag & drop Meta/Google CSV", type=["csv"])
-    st.caption("Supported columns: Spend, Impressions, Clicks, CTR, CPC, CPM, Add to Cart, Purchases, Conversion Value, Purchase ROAS, Frequency, Date, Campaign, Ad Set, Placement.")
-    st.divider()
-    st.header("Leak Rules")
-    breakeven_roas = st.number_input("Breakeven ROAS", 0.1, 10.0, 1.0, 0.1)
-    fatigue_freq = st.number_input("Fatigue if Frequency >", 1.0, 15.0, 5.0, 0.5)
-    fatigue_ctr = st.number_input("Fatigue if CTR < (%)", 0.0, 10.0, 0.5, 0.1)
+# Helper functions
+def normalize_columns(df):
+    """Normalize column names for flexible matching"""
+    normalized = {}
+    for col in df.columns:
+        normalized[col.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('%', '')] = col
+    return normalized
 
-if not up:
-    st.info("Upload a CSV to generate the one-page investor-ready dashboard.")
-    st.stop()
-
-# ---------- Helpers ----------
-def norm(col: str) -> str:
-    return re.sub(r"\s+", "_", str(col).strip().lower())
-
-def pick(cols, *alts):
-    for a in alts:
-        if a in cols:
-            return a
+def pick(cols_dict, *names):
+    """Pick first matching column from options"""
+    for name in names:
+        if name in cols_dict:
+            return cols_dict[name]
     return None
 
-def to_num(s: pd.Series) -> pd.Series:
-    if s is None:
-        return pd.Series(dtype=float)
-    if s.dtype.kind in "ifu":
-        return pd.to_numeric(s, errors="coerce").fillna(0.0)
-    return (
-        s.astype(str)
-         .str.replace(",", "", regex=False)
-         .str.replace("%", "", regex=False)
-         .apply(lambda x: pd.to_numeric(x, errors="coerce"))
-         .fillna(0.0)
-    )
+def to_num(series):
+    """Convert to numeric, filling NaN with 0"""
+    return pd.to_numeric(series, errors='coerce').fillna(0)
 
-# ---------- Load & normalize ----------
-raw = pd.read_csv(up)
-raw.columns = [norm(c) for c in raw.columns]
-cols = set(raw.columns)
+def build_leaks(df, breakeven_roas, fatigue_freq, fatigue_ctr):
+    """Calculate waste for each row"""
+    df = df.copy()
+    df['waste'] = 0.0
+    
+    # Low ROAS waste
+    low_roas_mask = df['roas'] < breakeven_roas
+    df.loc[low_roas_mask, 'waste'] += df.loc[low_roas_mask, 'spend']
+    
+    # Fatigue waste (partial)
+    if 'frequency' in df.columns:
+        fatigue_mask = (df['frequency'] > fatigue_freq) & (df['ctr'] < fatigue_ctr)
+        df.loc[fatigue_mask, 'waste'] += df.loc[fatigue_mask, 'spend'] * 0.5
+    
+    # Weak placement waste
+    if 'placement' in df.columns:
+        placement_roas = df.groupby('placement')['roas'].mean()
+        account_roas = df['roas'].mean()
+        weak_threshold = max(breakeven_roas, 0.5 * account_roas)
+        
+        for placement in placement_roas.index:
+            if placement_roas[placement] < weak_threshold:
+                placement_mask = df['placement'] == placement
+                df.loc[placement_mask, 'waste'] += df.loc[placement_mask, 'spend']
+    
+    return df
 
-DATE = pick(cols, "date", "day", "reporting_starts", "reporting_date")
-CAMPAIGN = pick(cols, "campaign", "campaign_name")
-ADSET = pick(cols, "ad_set", "adset", "adset_name", "ad_set_name")
-PLACEMENT = pick(cols, "placement", "platform_position")
-SPEND = pick(cols, "amount_spent_(usd)", "spend_usd", "amount_spent", "spend")
-IMPS = pick(cols, "impressions")
-CLICKS = pick(cols, "clicks")
-CTR = pick(cols, "ctr_%", "ctr")
-CPC = pick(cols, "cpc_usd", "cpc")
-CPM = pick(cols, "cpm_usd", "cpm")
-ATC = pick(cols, "add_to_cart", "adds_to_cart")
-PUR = pick(cols, "purchases", "results", "purchase")
-REV = pick(cols, "conversion_value_(usd)", "conversion_value_usd", "conversion_value", "purchase_value", "revenue")
-ROAS = pick(cols, "purchase_roas", "purchase_roas_(return_on_ad_spend)", "roas")
-FREQ = pick(cols, "frequency")
+def kpis(df):
+    """Calculate key metrics"""
+    total_spend = df['spend'].sum()
+    total_revenue = df['revenue'].sum()
+    total_clicks = df['clicks'].sum()
+    total_purchases = df['purchases'].sum()
+    total_impressions = df['impressions'].sum()
+    total_atc = df.get('add_to_cart', pd.Series([0])).sum()
+    
+    avg_roas = total_revenue / total_spend if total_spend > 0 else 0
+    cvr = (total_purchases / total_clicks * 100) if total_clicks > 0 else 0
+    aov = total_revenue / total_purchases if total_purchases > 0 else 0
+    ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
+    avg_freq = df.get('frequency', pd.Series([0])).mean()
+    
+    return {
+        'total_spend': total_spend,
+        'total_revenue': total_revenue,
+        'avg_roas': avg_roas,
+        'cvr': cvr,
+        'aov': aov,
+        'ctr': ctr,
+        'avg_freq': avg_freq,
+        'total_clicks': total_clicks,
+        'total_purchases': total_purchases,
+        'total_impressions': total_impressions,
+        'total_atc': total_atc
+    }
 
-w = pd.DataFrame()
-w["date"] = pd.to_datetime(raw.get(DATE), errors="coerce")
-w["campaign"] = raw.get(CAMPAIGN, "-")
-w["ad_set"] = raw.get(ADSET, "-")
-w["placement"] = raw.get(PLACEMENT, "-")
+# Sidebar controls
+st.sidebar.title("⚙️ Settings")
+st.sidebar.markdown("**Upload CSV & set leak rules**")
 
-w["spend"] = to_num(raw.get(SPEND))
-w["imps"] = to_num(raw.get(IMPS))
-w["clicks"] = to_num(raw.get(CLICKS))
-w["ctr"] = to_num(raw.get(CTR))
-w.loc[w["ctr"].eq(0) & w["imps"].gt(0), "ctr"] = (w["clicks"] / w["imps"]) * 100
-w["cpc"] = to_num(raw.get(CPC))
-w.loc[w["cpc"].eq(0) & w["clicks"].gt(0), "cpc"] = w["spend"] / w["clicks"]
-w["cpm"] = to_num(raw.get(CPM))
-w.loc[w["cpm"].eq(0) & w["imps"].gt(0), "cpm"] = (w["spend"] / w["imps"]) * 1000
-w["atc"] = to_num(raw.get(ATC))
-w["purchases"] = to_num(raw.get(PUR))
-w["revenue"] = to_num(raw.get(REV))
-w["roas"] = to_num(raw.get(ROAS))
-w.loc[w["roas"].eq(0) & w["spend"].gt(0) & w["revenue"].gt(0), "roas"] = w["revenue"] / w["spend"]
-w["freq"] = to_num(raw.get(FREQ))
-w["cvr"] = np.where(w["clicks"].gt(0), w["purchases"]/w["clicks"]*100.0, 0.0)
-w["aov"] = np.where(w["purchases"].gt(0), w["revenue"]/w["purchases"], 0.0)
+uploaded_file = st.sidebar.file_uploader("Choose CSV file", type=['csv'])
+st.sidebar.markdown("💡 *Works with Meta & Google exports. USD only.*")
 
-# ---------- KPIs ----------
-TOTAL_SPEND = float(w["spend"].sum())
-TOTAL_REV = float(w["revenue"].sum())
-AVG_ROAS = (TOTAL_REV / TOTAL_SPEND) if TOTAL_SPEND > 0 else 0.0
+st.sidebar.markdown("### Leak Detection Rules")
+breakeven_roas = st.sidebar.number_input("Breakeven ROAS", value=1.0, min_value=0.1, step=0.1)
+fatigue_freq = st.sidebar.number_input("Fatigue Frequency Threshold", value=5.0, min_value=1.0, step=0.5)
+fatigue_ctr = st.sidebar.number_input("Fatigue CTR Threshold %", value=0.5, min_value=0.1, step=0.1)
 
-# Leak estimation rules
-w["waste_low_roas"] = np.where(w["roas"] < breakeven_roas, w["spend"], 0.0)
-w["waste_fatigue"] = np.where((w["freq"] > fatigue_freq) & (w["ctr"] < fatigue_ctr), w["spend"] * 0.5, 0.0)
-half_acc = max(breakeven_roas, 0.5 * AVG_ROAS) if AVG_ROAS > 0 else breakeven_roas
-plc = w.groupby("placement", dropna=False).agg(spend=("spend","sum"), roas=("roas","mean")).reset_index()
-plc["plc_waste"] = np.where(plc["roas"] < half_acc, plc["spend"], 0.0)
-w = w.merge(plc[["placement", "plc_waste"]], on="placement", how="left").fillna({"plc_waste": 0.0})
-w["waste"] = w[["waste_low_roas", "waste_fatigue", "plc_waste"]].sum(axis=1)
+if uploaded_file is not None:
+    # Load and process data
+    try:
+        df = pd.read_csv(uploaded_file)
+        cols = normalize_columns(df)
+        
+        # Map columns
+        date_col = pick(cols, 'date', 'day', 'reporting_starts')
+        campaign_col = pick(cols, 'campaign', 'campaign_name')
+        adset_col = pick(cols, 'ad_set', 'adset', 'adset_name')
+        placement_col = pick(cols, 'placement', 'platform_position')
+        spend_col = pick(cols, 'amount_spent_usd', 'spend_usd', 'amount_spent', 'spend')
+        impressions_col = pick(cols, 'impressions')
+        clicks_col = pick(cols, 'clicks')
+        ctr_col = pick(cols, 'ctr_', 'ctr')
+        cpc_col = pick(cols, 'cpc_usd', 'cpc')
+        cpm_col = pick(cols, 'cpm_usd', 'cpm')
+        atc_col = pick(cols, 'add_to_cart', 'adds_to_cart')
+        purchases_col = pick(cols, 'purchases', 'results', 'conversions')
+        revenue_col = pick(cols, 'conversion_value_usd', 'conversion_value', 'purchase_value', 'revenue')
+        roas_col = pick(cols, 'purchase_roas_return_on_ad_spend', 'purchase_roas', 'roas')
+        freq_col = pick(cols, 'frequency')
+        
+        # Check required columns
+        required = [spend_col, impressions_col, clicks_col]
+        missing = [col for col in ['spend', 'impressions', 'clicks'] if eval(f"{col}_col") is None]
+        
+        if missing:
+            st.error(f"❌ Missing required columns: {', '.join(missing)}. Please check your CSV headers.")
+            st.stop()
+        
+        # Build clean dataframe
+        clean_df = pd.DataFrame()
+        if date_col: clean_df['date'] = pd.to_datetime(df[date_col], errors='coerce')
+        if campaign_col: clean_df['campaign'] = df[campaign_col]
+        if adset_col: clean_df['adset'] = df[adset_col]
+        if placement_col: clean_df['placement'] = df[placement_col]
+        
+        clean_df['spend'] = to_num(df[spend_col])
+        clean_df['impressions'] = to_num(df[impressions_col])
+        clean_df['clicks'] = to_num(df[clicks_col])
+        
+        # Calculate or use existing metrics
+        if ctr_col:
+            clean_df['ctr'] = to_num(df[ctr_col])
+        else:
+            clean_df['ctr'] = np.where(clean_df['impressions'] > 0, 
+                                     clean_df['clicks'] / clean_df['impressions'] * 100, 0)
+        
+        if cpc_col:
+            clean_df['cpc'] = to_num(df[cpc_col])
+        else:
+            clean_df['cpc'] = np.where(clean_df['clicks'] > 0, 
+                                     clean_df['spend'] / clean_df['clicks'], 0)
+        
+        if cpm_col:
+            clean_df['cpm'] = to_num(df[cpm_col])
+        else:
+            clean_df['cpm'] = np.where(clean_df['impressions'] > 0, 
+                                     clean_df['spend'] / clean_df['impressions'] * 1000, 0)
+        
+        if atc_col: clean_df['add_to_cart'] = to_num(df[atc_col])
+        if purchases_col: clean_df['purchases'] = to_num(df[purchases_col])
+        else: clean_df['purchases'] = 0
+        
+        if revenue_col: clean_df['revenue'] = to_num(df[revenue_col])
+        else: clean_df['revenue'] = 0
+        
+        if roas_col:
+            clean_df['roas'] = to_num(df[roas_col])
+        else:
+            clean_df['roas'] = np.where(clean_df['spend'] > 0, 
+                                      clean_df['revenue'] / clean_df['spend'], 0)
+        
+        if freq_col: clean_df['frequency'] = to_num(df[freq_col])
+        
+        # Calculate leaks
+        leak_df = build_leaks(clean_df, breakeven_roas, fatigue_freq, fatigue_ctr)
+        metrics = kpis(leak_df)
+        
+        wasted = leak_df['waste'].sum()
+        effective_spend = metrics['total_spend'] - wasted
+        daily_waste = wasted / 30
+        
+        # Main dashboard
+        st.title("💰 Revenue Leak Report")
+        
+        # Section A - Executive Summary
+        st.markdown("## 🚨 Executive Summary")
+        st.markdown(f"### You're leaking ~${wasted:,.0f} this month.")
+        st.markdown("A leak is spend that doesn't bring sales. We plug leaks and move budget into what works.")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Spend", f"${metrics['total_spend']:,.0f}")
+        with col2:
+            st.metric("Wasted Spend", f"${wasted:,.0f}")
+        with col3:
+            st.metric("Average ROAS", f"{metrics['avg_roas']:.2f}")
+        with col4:
+            st.metric("Monthly Savings Potential", f"${wasted:,.0f}")
+        
+        st.markdown(f"**Daily: ${daily_waste:.0f} • Weekly: ${daily_waste*7:.0f} • Monthly: ${wasted:.0f}**")
+        
+        # Donut chart
+        fig_donut = go.Figure(data=[go.Pie(
+            labels=['Effective Spend', 'Wasted Spend'],
+            values=[effective_spend, wasted],
+            hole=.5,
+            marker_colors=['#2E8B57', '#DC143C']
+        )])
+        fig_donut.update_layout(title="Effective vs Wasted Spend", height=300, template='plotly_white')
+        st.plotly_chart(fig_donut, use_container_width=True)
+        
+        # Section B - Account Overview
+        st.markdown("## 📈 Account at a Glance")
+        
+        if 'date' in clean_df.columns and not clean_df['date'].isna().all():
+            daily_data = clean_df.groupby('date').agg({
+                'spend': 'sum',
+                'revenue': 'sum'
+            }).reset_index()
+            
+            fig_trend = go.Figure()
+            fig_trend.add_trace(go.Scatter(
+                x=daily_data['date'], y=daily_data['spend'],
+                fill='tonexty', name='Spend', line_color='#FF6B6B'
+            ))
+            fig_trend.add_trace(go.Scatter(
+                x=daily_data['date'], y=daily_data['revenue'],
+                fill='tonexty', name='Revenue', line_color='#4ECDC4'
+            ))
+            fig_trend.update_layout(title="Spend vs Revenue Trend", height=300, template='plotly_white')
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("📅 No date column found - skipping trend analysis")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Purchases", f"{metrics['total_purchases']:,.0f}")
+        with col2:
+            st.metric("CTR %", f"{metrics['ctr']:.2f}%")
+        with col3:
+            st.metric("Avg Frequency", f"{metrics['avg_freq']:.1f}")
+        
+        # Funnel chart
+        funnel_data = [metrics['total_impressions'], metrics['total_clicks'], 
+                      metrics.get('total_atc', metrics['total_clicks'] * 0.1), metrics['total_purchases']]
+        fig_funnel = go.Figure(go.Funnel(
+            y=['Impressions', 'Clicks', 'Add to Cart', 'Purchases'],
+            x=funnel_data,
+            texttemplate='%{x:,.0f}',
+            textposition='inside'
+        ))
+        fig_funnel.update_layout(title="Conversion Funnel", height=300, template='plotly_white')
+        st.plotly_chart(fig_funnel, use_container_width=True)
+        
+        # Section C - Top Leaks
+        st.markdown("## 🔍 Top 5 Money Leaks")
+        
+        # Build leaks table
+        leaks_list = []
+        
+        if 'placement' in leak_df.columns:
+            placement_waste = leak_df.groupby('placement')['waste'].sum().sort_values(ascending=False).head(3)
+            for placement, waste in placement_waste.items():
+                if waste > 0:
+                    leaks_list.append({
+                        'Leak': f"{placement} placement",
+                        'Wasted $': f"${waste:,.0f}",
+                        'Why it matters': "Low-converting placement drains budget",
+                        'Fix': "Pause or reduce bids",
+                        'Confidence': "High"
+                    })
+        
+        if 'adset' in leak_df.columns:
+            adset_waste = leak_df[leak_df['roas'] < breakeven_roas].groupby('adset')['waste'].sum().sort_values(ascending=False).head(2)
+            for adset, waste in adset_waste.items():
+                if waste > 0:
+                    leaks_list.append({
+                        'Leak': f"{adset} ad set",
+                        'Wasted $': f"${waste:,.0f}",
+                        'Why it matters': "Below breakeven performance",
+                        'Fix': "Refresh creative or pause",
+                        'Confidence': "High"
+                    })
+        
+        if leaks_list:
+            leaks_df = pd.DataFrame(leaks_list[:5])
+            st.dataframe(leaks_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No major leaks detected with current thresholds")
+        
+        # Section D - Fix Checklist
+        st.markdown("## ✅ Fix Checklist")
+        
+        actions = [
+            ("Pause worst placements", wasted * 0.6),
+            ("Refresh creatives", wasted * 0.3),
+            ("Kill zero-conversion ads", wasted * 0.04),
+            ("Cap frequency & broaden audience", wasted * 0.05),
+            ("Exclude low-intent surfaces", wasted * 0.01)
+        ]
+        
+        action_df = pd.DataFrame(actions, columns=['Action', 'Est. Monthly Recovery $'])
+        action_df['Est. Monthly Recovery $'] = action_df['Est. Monthly Recovery $'].apply(lambda x: f"${x:,.0f}")
+        st.dataframe(action_df, use_container_width=True, hide_index=True)
+        
+        fig_recovery = px.bar(
+            x=[action[1] for action in actions],
+            y=[action[0] for action in actions],
+            orientation='h',
+            title="Recovery by Action"
+        )
+        fig_recovery.update_layout(height=300, template='plotly_white')
+        st.plotly_chart(fig_recovery, use_container_width=True)
+        
+        st.markdown(f"**Total Recovery Potential: ${wasted:,.0f} / month**")
+        
+        # Section E - Forecast
+        st.markdown("## ⚡ Forecast & 'Do Nothing' Loss")
+        
+        fig_comparison = go.Figure()
+        fig_comparison.add_trace(go.Bar(name='Effective Spend Now', x=['Current'], y=[effective_spend]))
+        fig_comparison.add_trace(go.Bar(name='After Fixes', x=['Current'], y=[metrics['total_spend']]))
+        fig_comparison.update_layout(title="Effective Spend: Now vs After Fixes", height=300, template='plotly_white')
+        st.plotly_chart(fig_comparison, use_container_width=True)
+        
+        loss_data = pd.DataFrame({
+            'Period': ['Month', 'Quarter', 'Year'],
+            'Loss': [wasted, wasted * 3, wasted * 12]
+        })
+        fig_loss = px.bar(loss_data, x='Period', y='Loss', title="If you do nothing... losses")
+        fig_loss.update_layout(height=300, template='plotly_white')
+        st.plotly_chart(fig_loss, use_container_width=True)
+        
+        st.markdown(f"Every day you delay ≈ ${daily_waste:.0f} leaks out.")
+        
+        # Section F - Opportunity Map
+        st.markdown("## 🗺️ Opportunity Map (Impact vs Effort)")
+        
+        if leaks_list:
+            impact_effort = []
+            for i, leak in enumerate(leaks_list[:5]):
+                waste_amount = float(leak['Wasted $'].replace('$', '').replace(',', ''))
+                impact = waste_amount / wasted if wasted > 0 else 0
+                effort = 0.35 if 'placement' in leak['Leak'] else 0.55
+                impact_effort.append({
+                    'Leak': leak['Leak'][:20] + '...' if len(leak['Leak']) > 20 else leak['Leak'],
+                    'Impact': impact,
+                    'Effort': effort
+                })
+            
+            if impact_effort:
+                opp_df = pd.DataFrame(impact_effort)
+                fig_scatter = px.scatter(opp_df, x='Effort', y='Impact', text='Leak',
+                                       title="Impact vs Effort Matrix")
+                fig_scatter.add_hline(y=0.5, line_dash="dash", line_color="gray")
+                fig_scatter.add_vline(x=0.5, line_dash="dash", line_color="gray")
+                fig_scatter.update_traces(textposition="top center")
+                fig_scatter.update_layout(height=400, template='plotly_white')
+                st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        # Section G - Benchmarks
+        st.markdown("## 📊 Benchmarks")
+        
+        benchmark_data = pd.DataFrame({
+            'Metric': ['CTR %', 'ROAS', 'Frequency'],
+            'Your Performance': [f"{metrics['ctr']:.2f}%", f"{metrics['avg_roas']:.2f}", f"{metrics['avg_freq']:.1f}"],
+            'Benchmark': ['1.50%', '4.00', '4.0']
+        })
+        st.dataframe(benchmark_data, use_container_width=True, hide_index=True)
+        
+        # Section H - CTA
+        st.markdown("## 🎯 Next Steps")
+        st.markdown("We'll implement fixes, monitor performance, and re-audit monthly.")
+        
+        if st.button("📞 Book your fix call", type="primary"):
+            st.success("Redirecting to booking page... (placeholder)")
+        
+    except Exception as e:
+        st.error(f"❌ Error processing file: {str(e)}")
+        st.markdown("Please ensure your CSV has the required columns and proper formatting.")
 
-WASTED = float(w["waste"].sum())
-EFFECTIVE_NOW = max(TOTAL_SPEND - WASTED, 0.0)
-DAILY_WASTE = WASTED / 30.0 if WASTED > 0 else 0.0
-
-# ---------- 1) Executive Summary (FOMO) ----------
-st.markdown(
-    f"### 🚨 You're leaking **~${WASTED:,.0f}** this month\n"
-    "Fixing these leaks now can put this money back into sales."
-)
-st.markdown("**What’s a leak?** Any ad spend that doesn’t bring sales. We plug leaks and move budget into what *does* work.")
-
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total Spend", f"${TOTAL_SPEND:,.0f}")
-k2.metric("Wasted Spend (leak)", f"${WASTED:,.0f}")
-k3.metric("Average ROAS", f"{AVG_ROAS:.2f}")
-k4.metric("Potential Monthly Savings", f"${WASTED:,.0f}")
-
-st.markdown(f"#### ⏳ Daily leak: **${DAILY_WASTE:,.0f}**  •  Weekly: **${DAILY_WASTE*7:,.0f}**  •  Monthly: **${WASTED:,.0f}**")
-st.caption("Every day you delay, this amount likely leaks from your ads.")
-
-# Donut: Effective vs Wasted
-donut = go.Figure(data=[go.Pie(labels=["Effective Spend", "Wasted Spend"], values=[EFFECTIVE_NOW, WASTED], hole=0.6, textinfo="label+percent")])
-donut.update_layout(height=260, margin=dict(l=10, r=10, t=0, b=0), template="plotly_white", showlegend=False)
-st.plotly_chart(donut, use_container_width=True)
-
-st.divider()
-
-# ---------- 2) Your Account at a Glance ----------
-st.subheader("2) Your Account at a Glance")
-colA, colB = st.columns([2, 1])
-
-# Gradient line: Spend vs Revenue
-if w["date"].notna().any():
-    daily = w.groupby("date").agg(spend=("spend", "sum"), revenue=("revenue", "sum")).reset_index()
-    fig_grad = go.Figure()
-    fig_grad.add_trace(go.Scatter(x=daily["date"], y=daily["spend"], mode="lines",
-                                  line=dict(width=5, color="rgba(59,130,246,1)"),
-                                  fill="tozeroy", fillcolor="rgba(59,130,246,0.18)", name="Spend"))
-    fig_grad.add_trace(go.Scatter(x=daily["date"], y=daily["revenue"], mode="lines",
-                                  line=dict(width=5, color="rgba(34,197,94,1)"),
-                                  fill="tozeroy", fillcolor="rgba(34,197,94,0.18)", name="Revenue"))
-    fig_grad.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), template="plotly_white",
-                           xaxis_title="", yaxis_title="USD")
-    colA.plotly_chart(fig_grad, use_container_width=True)
 else:
-    colA.info("No date column detected; showing totals only.")
-
-# Simple KPIs
-ctr_overall = (w["clicks"].sum() / w["imps"].sum() * 100.0) if w["imps"].sum() > 0 else 0.0
-freq_mean = w["freq"].replace(0, np.nan).mean() if "freq" in w.columns else 0.0
-stats = pd.DataFrame({"Metric": ["Total Purchases", "CTR (engagement)", "Ad Frequency (avg)"],
-                      "Value": [int(w["purchases"].sum()), f"{ctr_overall:.1f}%", f"{freq_mean:.1f}"]})
-colB.dataframe(stats, hide_index=True, use_container_width=True)
-
-# Funnel (Impressions → Clicks → ATC → Purchases)
-funnel_df = pd.DataFrame({"Stage": ["Impressions", "Clicks", "Add to Cart", "Purchases"],
-                          "Value": [w["imps"].sum(), w["clicks"].sum(), w["atc"].sum(), w["purchases"].sum()]})
-fig_funnel = px.funnel(funnel_df, x="Value", y="Stage", template="simple_white")
-fig_funnel.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
-st.subheader("Where revenue leaks in your funnel")
-st.plotly_chart(fig_funnel, use_container_width=True)
-st.caption("Fix ideas: improve hooks (impressions→clicks), landing page (clicks→add to cart), checkout (add to cart→purchases).")
-
-st.divider()
-
-# ---------- 3) Top 5 Money Leaks ----------
-st.subheader("3) Top 5 Money Leaks")
-
-# Placement waste
-plc_perf = (w.groupby("placement", dropna=False)
-              .agg(spend=("spend", "sum"), roas=("roas", "mean"), waste=("waste", "sum"))
-              .reset_index()
-              .sort_values("waste", ascending=False))
-
-leaks = []
-for _, r in plc_perf.head(3).iterrows():
-    leaks.append({
-        "Leak": f"{r['placement']}",
-        "Wasted $": round(float(r["waste"]), 2),
-        "Why it matters": f"ROAS {r['roas']:.2f} — budget not returning sales",
-        "Fix": "Downweight/exclude & move budget to stronger placements",
-        "Confidence": "High" if r["roas"] < breakeven_roas else "Medium"
-    })
-
-# Low-ROAS ad sets
-low_as = (w[(w["roas"] < breakeven_roas) & (w["spend"] > max(100, 0.03 * TOTAL_SPEND))]
-          .groupby("ad_set", dropna=False)
-          .agg(spend=("spend", "sum"), roas=("roas", "mean"))
-          .reset_index()
-          .sort_values("spend", ascending=False)
-          .head(2))
-for _, r in low_as.iterrows():
-    leaks.append({
-        "Leak": f"Ad set: {r['ad_set']}",
-        "Wasted $": round(float(r["spend"]), 2),
-        "Why it matters": f"ROAS {r['roas']:.2f} — below breakeven",
-        "Fix": "Pause/reduce, refresh creative, refine audience",
-        "Confidence": "High"
-    })
-
-leaks_df = pd.DataFrame(leaks).sort_values("Wasted $", ascending=False).head(5)
-st.dataframe(leaks_df, hide_index=True, use_container_width=True)
-
-# Waste share by placement (pie)
-if not plc_perf.empty:
-    waste_by_plc = plc_perf.head(5)
-    fig_waste_pie = go.Figure(data=[go.Pie(labels=waste_by_plc["placement"], values=waste_by_plc["waste"], hole=0.5, textinfo="label+percent")])
-    fig_waste_pie.update_layout(height=260, template="plotly_white", margin=dict(l=10, r=10, t=0, b=0), showlegend=False)
-    st.plotly_chart(fig_waste_pie, use_container_width=True)
-
-st.divider()
-
-# ---------- 4) Fix Checklist – Recover $ ----------
-st.subheader("4) Fix Checklist – Plug the leaks & recover monthly")
-
-# Recovery estimates (illustrative split of total waste)
-recov = [
-    ("Pause worst placements (top 2)", min(WASTED * 0.55, WASTED * 0.65)),
-    ("Refresh creatives (shorter, stronger hooks)", min(WASTED * 0.25, WASTED * 0.35)),
-    ("Kill zero-conversion ads", min(WASTED * 0.03, WASTED * 0.05)),
-    ("Cap frequency & broaden audience", min(WASTED * 0.05, WASTED * 0.08)),
-    ("Exclude low-intent surfaces (e.g., Explore)", min(WASTED * 0.02, WASTED * 0.05)),
-]
-recov_df = pd.DataFrame(recov, columns=["Action", "Est. Monthly Recovery $"])
-recov_df["Est. Monthly Recovery $"] = recov_df["Est. Monthly Recovery $"].round(0)
-st.dataframe(recov_df, hide_index=True, use_container_width=True)
-st.markdown(f"**Total Recovery Potential:** **${WASTED:,.0f}/month**")
-
-# Recovery bar
-fig_recovery = go.Figure(data=[go.Bar(x=recov_df["Action"], y=recov_df["Est. Monthly Recovery $"])])
-fig_recovery.update_layout(height=260, template="plotly_white", margin=dict(l=10, r=10, t=10, b=80), yaxis_title="USD", xaxis_tickangle=-20)
-st.plotly_chart(fig_recovery, use_container_width=True)
-
-st.divider()
-
-# ---------- 5) If you do nothing… (loss forecast) ----------
-st.subheader("5) Forecast – What happens if you act now?")
-forecast = go.Figure()
-forecast.add_bar(name="Effective (Now)", x=["Spend"], y=[EFFECTIVE_NOW])
-forecast.add_bar(name="Effective (After Fixes)", x=["Spend"], y=[TOTAL_SPEND])
-forecast.update_layout(barmode="group", height=260, template="plotly_white", margin=dict(l=10, r=10, t=10, b=10), yaxis_title="USD")
-st.plotly_chart(forecast, use_container_width=True)
-
-st.subheader("If you do nothing… expected money lost")
-proj = pd.DataFrame({"Horizon": ["This month", "Quarter (90d)", "Year"], "Loss": [WASTED, WASTED * 3, WASTED * 12]})
-fig_loss = go.Figure(data=[go.Bar(x=proj["Horizon"], y=proj["Loss"], marker_color="crimson")])
-fig_loss.update_layout(height=280, template="plotly_white", yaxis_title="USD", margin=dict(l=10, r=10, t=10, b=10))
-st.plotly_chart(fig_loss, use_container_width=True)
-st.caption(f"⚠️ Every day you delay, ~**${DAILY_WASTE:,.0f}** leaks out of your ads.")
-
-st.divider()
-
-# ---------- 6) Opportunity map (Impact vs Effort) ----------
-st.subheader("6) Opportunity map — do these first")
-def _ie_score(row):
-    impact = min(1.0, float(row["Wasted $"]) / max(WASTED, 1)) if "Wasted $" in row else 0.5
-    effort = 0.35 if "Ad set" not in str(row["Leak"]) else 0.55
-    return impact, effort
-
-if not leaks_df.empty:
-    pts = []
-    for _, r in leaks_df.iterrows():
-        imp, eff = _ie_score(r)
-        pts.append((r["Leak"], imp, eff))
-    ie = pd.DataFrame(pts, columns=["Leak", "Impact", "Effort"])
-    fig_ie = go.Figure()
-    fig_ie.add_shape(type="line", x0=0.5, x1=0.5, y0=0, y1=1, line=dict(color="lightgray"))
-    fig_ie.add_shape(type="line", x0=0, x1=1, y0=0.5, y1=0.5, line=dict(color="lightgray"))
-    fig_ie.add_trace(go.Scatter(x=ie["Effort"], y=ie["Impact"], mode="markers+text", text=ie["Leak"], textposition="top center", marker=dict(size=14)))
-    fig_ie.update_layout(height=320, template="plotly_white", xaxis_title="Effort", yaxis_title="Impact", margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig_ie, use_container_width=True)
-
-st.divider()
-
-# ---------- 7) Benchmarks (context) ----------
-st.subheader("7) Benchmarks — are you ahead or behind?")
-bench = {"CTR % (good)": 1.5, "ROAS (good)": 4.0, "Freq (max)": 4.0}
-bm_ctr = (w["clicks"].sum()/w["imps"].sum()*100.0) if w["imps"].sum() > 0 else 0.0
-bm_freq = w["freq"].replace(0, np.nan).mean() if "freq" in w.columns else 0.0
-bm = pd.DataFrame({
-    "Metric": ["Your CTR %", "Benchmark CTR %", "Your ROAS", "Benchmark ROAS", "Your Frequency", "Benchmark Max Freq"],
-    "Value": [round(bm_ctr, 1), bench["CTR % (good)"], round(AVG_ROAS, 2), bench["ROAS (good)"], round(bm_freq, 1), bench["Freq (max)"]],
-})
-st.dataframe(bm, hide_index=True, use_container_width=True)
-
-# Optional: Meta vs Google split (if campaign names contain "google")
-def _platform(name):
-    s = str(name).lower()
-    return "Google" if "google" in s else "Meta"
-if "campaign" in w.columns:
-    w["platform"] = w["campaign"].apply(_platform)
-    by_plat = w.groupby("platform").agg(spend=("spend","sum"), revenue=("revenue","sum"), waste=("waste","sum")).reset_index()
-    if by_plat["platform"].nunique() > 1:
-        fig_plat = go.Figure(data=[
-            go.Bar(name="Spend", x=by_plat["platform"], y=by_plat["spend"]),
-            go.Bar(name="Revenue", x=by_plat["platform"], y=by_plat["revenue"]),
-            go.Bar(name="Wasted", x=by_plat["platform"], y=by_plat["waste"]),
-        ])
-        fig_plat.update_layout(barmode="group", height=280, template="plotly_white", yaxis_title="USD", margin=dict(l=10, r=10, t=10, b=10))
-        st.subheader("Channel mix — Meta vs Google")
-        st.plotly_chart(fig_plat, use_container_width=True)
-
-st.divider()
-st.markdown("**Next steps** — We can implement these fixes for you, monitor results, and run monthly audits so leaks don’t reopen. Book a call to get started.")
-st.link_button("📅 Book your fix call", "https://calendly.com/", type="primary")
+    st.markdown("## 👋 Welcome to Revenue Leak Report")
+    st.markdown("Upload your Meta or Google Ads CSV to identify budget waste and optimization opportunities.")
+    st.markdown("### Sample columns we look for:")
+    st.markdown("- **Spend**: Amount Spent (USD), Spend")
+    st.markdown("- **Performance**: Impressions, Clicks, CTR, Purchases")
+    st.markdown("- **Revenue**: Conversion Value (USD), Revenue") 
+    st.markdown("- **Targeting**: Campaign, Ad Set, Placement")
+    
+    st.info("💡 Works with standard Meta Business Manager and Google Ads exports. USD currency only.")
