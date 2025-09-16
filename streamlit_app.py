@@ -272,7 +272,7 @@ with c3:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Top rows sample
-st.markdown('<div class="card">**Top rows (sample)**</div>', unsafe_allow_html=True)
+st.markdown('<div class="card">Top Performing Ad Sets </div>', unsafe_allow_html=True)
 sample_cols = [c for c in ["adset_name","campaign_name","clicks","impressions"] if c in U.columns]
 if sample_cols:
     st.dataframe(U[sample_cols].head(12), use_container_width=True, height=300)
