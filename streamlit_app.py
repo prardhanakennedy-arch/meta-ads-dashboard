@@ -1,70 +1,32 @@
-# Let's create a ready-to-run Streamlit app file that the user can download and reuse.
-# The app will accept CSV uploads for multiple clients, compute the "Top 5 Revenue Leaks",
-# and generate a polished Markdown report mirroring the earlier sample.
-# We'll save it to /mnt/data/meta_ads_revenue_leak_report_app.py
+# Create a branded + PDF-export version of the Streamlit app.
+# This version adds:
+# - Branding controls (logo upload, brand colors, footer text)
+# - Optional case studies section (CSV upload)
+# - PDF export using ReportLab (if available), with graceful fallback
+# - Simple HTML download as an alternative
+#
+# It reuses the same calculations as the base app by inlining the prior logic (trimmed for clarity).
 
 app_code = r'''
-
-# meta_ads_revenue_leak_report_app.py
-# ----------------------------------
-# Streamlit app to generate a client-facing "Meta Ads Revenue Leak Report"
-# Reusable for multiple clients by uploading their data each time.
+# meta_ads_revenue_leak_report_app_branded.py
+# -------------------------------------------
+# Streamlit app to generate a branded client-facing "Meta Ads Revenue Leak Report"
+# with PDF export (via ReportLab if installed) and optional case studies section.
 #
 # How to run locally:
-#   1) pip install streamlit pandas numpy python-dateutil
-#   2) streamlit run meta_ads_revenue_leak_report_app.py
+#   1) pip install streamlit pandas numpy python-dateutil reportlab
+#   2) streamlit run meta_ads_revenue_leak_report_app_branded.py
 #
-# Expected Inputs (CSV uploads) — flexible but recommended schemas below.
-# You can export these from Meta Ads Manager, Shopify, GA4 or your analytics tool.
-#
-# 1) Meta Ads performance (meta_ads.csv): per day or aggregated rows
-#    Columns (recommended):
-#       date, campaign_name, adset_name, ad_name, objective, spend, impressions, clicks, ctr,
-#       cpc, cpm, frequency, add_to_cart, purchases, revenue, attribution_window,
-#       audience_name, audience_stage, placement
-#    Notes:
-#      - audience_stage can be one of: "TOFU" (prospecting), "MOFU", "BOFU" (retargeting)
-#      - revenue is the revenue as reported by Meta (ROAS calc = revenue/spend)
-#
-# 2) Backend orders/sales (backend_orders.csv): Shopify or your OMS
-#    Columns (recommended):
-#       date, orders, backend_revenue, refunds, returns_cost, shipping_cost, product_cost, payment_fees
-#    Notes:
-#      - backend_revenue should be net of discounts; include currency-consistent numbers
-#
-# 3) Web analytics / funnel (web_analytics.csv): GA4 or similar
-#    Columns (recommended):
-#       date, device, sessions, conversion_rate, add_to_cart_rate, checkout_rate, purchase_rate,
-#       avg_page_load_time, bounce_rate
-#    Notes:
-#      - device in {"mobile", "desktop", "tablet"} (tablet optional)
-#
-# 4) Pixel events (optional) (pixel_events.csv):
-#    Columns (recommended):
-#       date, event_name, event_id, device, url
-#    Notes:
-#      - If event_id is unique per purchase, we can approximate duplicate fires by duplicates
-#
-# 5) Creative stats (optional) (creative_stats.csv): if separate creative-level export
-#    Columns (recommended):
-#       ad_name, first_seen_date, last_seen_date, spend, impressions, clicks, ctr, purchases, revenue
-#
-# The app will:
-#  - Ingest data and fill reasonable defaults if some files are missing
-#  - Diagnose 5 leaks:
-#      1) Tracking & attribution errors
-#      2) Campaign objective misalignment
-#      3) Creative fatigue & underperforming ads
-#      4) Audience overlap & wasted spend (heuristic)
-#      5) Landing page / checkout drop-off (esp. mobile)
-#  - Estimate recoverable revenue using conservative assumptions (editable via sliders)
-#  - Produce a polished Markdown report you can download
+# Inputs mirror the non-branded app:
+#  - meta_ads.csv, backend_orders.csv, web_analytics.csv (required/optional as described)
+#  - pixel_events.csv, creative_stats.csv (optional)
+#  - NEW: case_studies.csv (optional): columns: title, problem, approach, result
 #
 # Author: Your Agency Name
-# License: MIT (modify as you like)
+# License: MIT
 
 import io
-import math
+import base64
 import textwrap
 from datetime import datetime
 from dateutil import parser
@@ -72,7 +34,18 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Meta Ads Revenue Leak Report", layout="wide")
+# Try to import reportlab for PDF export; if not available, we fall back.
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image as RLImage
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except Exception:
+    REPORTLAB_AVAILABLE = False
+
+st.set_page_config(page_title="Meta Ads Revenue Leak Report (Branded)", layout="wide")
 
 # ------------------------
 # Utility Functions
@@ -91,12 +64,10 @@ def load_csv(uploaded_file, parse_dates=None):
     except Exception:
         uploaded_file.seek(0)
         df = pd.read_excel(uploaded_file)
-    # Try to coerce date-like columns
     if parse_dates:
         for col in parse_dates:
             if col in df.columns:
                 df[col] = df[col].apply(_to_date)
-    # Lowercase column names for easier handling
     df.columns = [c.strip().lower() for c in df.columns]
     return df
 
@@ -109,10 +80,16 @@ def safe_float(x, default=0.0):
         return default
 
 def pct(n):
-    return f"{n:.1%}"
+    try:
+        return f"{n:.1%}"
+    except Exception:
+        return "n/a"
 
 def money(n):
-    return f"${n:,.0f}"
+    try:
+        return f"${n:,.0f}"
+    except Exception:
+        return "$0"
 
 def try_col(df, col, default=0.0):
     return df[col].apply(safe_float) if col in df.columns else pd.Series([default]*len(df))
@@ -131,19 +108,30 @@ def infer_period(meta_df, backend_df, web_df):
     return start, end
 
 # ------------------------
-# Sidebar: Uploads & Settings
+# Sidebar: Branding
 # ------------------------
-st.sidebar.title("Upload Data")
-meta_file = st.sidebar.file_uploader("Meta Ads (CSV/XLSX)", type=["csv", "xlsx"])
-backend_file = st.sidebar.file_uploader("Backend Orders (CSV/XLSX)", type=["csv", "xlsx"])
-web_file = st.sidebar.file_uploader("Web Analytics (CSV/XLSX)", type=["csv", "xlsx"])
-pixel_file = st.sidebar.file_uploader("Pixel Events (optional)", type=["csv", "xlsx"])
-creative_file = st.sidebar.file_uploader("Creative Stats (optional)", type=["csv", "xlsx"])
+st.sidebar.title("Branding")
+agency_name = st.sidebar.text_input("Agency Name", "Your Agency Name")
+primary_hex = st.sidebar.color_picker("Primary Color", "#1F6FEB")
+secondary_hex = st.sidebar.color_picker("Secondary Color", "#111827")
+accent_hex = st.sidebar.color_picker("Accent Color", "#06B6D4")
+footer_text = st.sidebar.text_input("Footer Text", "© Your Agency Name — Confidential")
+logo_file = st.sidebar.file_uploader("Logo (PNG/JPG)", type=["png","jpg","jpeg"])
 
+st.sidebar.markdown("---")
+st.sidebar.title("Upload Data")
+meta_file = st.sidebar.file_uploader("Meta Ads (CSV/XLSX)", type=["csv","xlsx"])
+backend_file = st.sidebar.file_uploader("Backend Orders (CSV/XLSX)", type=["csv","xlsx"])
+web_file = st.sidebar.file_uploader("Web Analytics (CSV/XLSX)", type=["csv","xlsx"])
+pixel_file = st.sidebar.file_uploader("Pixel Events (optional)", type=["csv","xlsx"])
+creative_file = st.sidebar.file_uploader("Creative Stats (optional)", type=["csv","xlsx"])
+case_file = st.sidebar.file_uploader("Case Studies (optional CSV)", type=["csv"])
+
+st.sidebar.markdown("---")
 st.sidebar.title("Report Settings")
-client_name = st.sidebar.text_input("Client/Brand Name", value="Acme Co.")
-prepared_by = st.sidebar.text_input("Prepared By", value="Your Agency Name")
+client_name = st.sidebar.text_input("Client/Brand Name", "Acme Co.")
 report_date = st.sidebar.date_input("Report Date", value=datetime.today())
+prepared_by = st.sidebar.text_input("Prepared By", agency_name)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Assumptions (Adjust)")
@@ -166,11 +154,15 @@ meta_df = load_csv(meta_file, parse_dates=["date"])
 backend_df = load_csv(backend_file, parse_dates=["date"])
 web_df = load_csv(web_file, parse_dates=["date"])
 pixel_df = load_csv(pixel_file, parse_dates=["date"])
-creative_df = load_csv(creative_file, parse_dates=["first_seen_date", "last_seen_date"])
+creative_df = load_csv(creative_file, parse_dates=["first_seen_date","last_seen_date"])
+case_df = load_csv(case_file)
 
 # ------------------------
-# Basic sanity / defaults
+# Guard
 # ------------------------
+st.title("Meta Ads Revenue Leak Report — Branded")
+st.caption("Upload client data and configure branding for a polished, client-ready report.")
+
 if meta_df is None:
     st.info("Upload at least Meta Ads data to begin.")
     st.stop()
@@ -201,10 +193,10 @@ if backend_df is not None:
     backend_df["orders"] = try_col(backend_df, "orders", 0.0)
     backend_df["backend_revenue"] = try_col(backend_df, "backend_revenue", 0.0)
 else:
-    # Construct a minimal backend df by inferring purchases * AOV if truly missing
     tmp = meta_df.groupby("date", dropna=True).agg({"purchases":"sum"}).reset_index()
     if len(tmp) == 0:
-        tmp = pd.DataFrame({"date":[datetime.today().date()], "purchases":[0.0]})
+        from datetime import date
+        tmp = pd.DataFrame({"date":[date.today()], "purchases":[0.0]})
     tmp["orders"] = tmp["purchases"]
     tmp["backend_revenue"] = tmp["orders"] * assumed_aov
     backend_df = tmp[["date","orders","backend_revenue"]].copy()
@@ -234,6 +226,19 @@ if creative_df is not None:
 # ------------------------
 # Period
 # ------------------------
+def infer_period(meta_df, backend_df, web_df):
+    dates = []
+    for df in [meta_df, backend_df, web_df]:
+        if df is not None and "date" in df.columns:
+            dd = df["date"].dropna()
+            if len(dd) > 0:
+                dates.append((dd.min(), dd.max()))
+    if not dates:
+        return None, None
+    start = min([d[0] for d in dates])
+    end = max([d[1] for d in dates])
+    return start, end
+
 period_start, period_end = infer_period(meta_df, backend_df, web_df)
 period_str = f"{period_start} to {period_end}" if period_start and period_end else "Selected Period"
 
@@ -245,7 +250,6 @@ backend_rev = backend_df["backend_revenue"].sum()
 tracking_diff = meta_rev - backend_rev
 tracking_diff_pct = (tracking_diff/backend_rev) if backend_rev > 0 else 0.0
 
-# Duplicate purchase heuristic from pixel events
 dup_ratio = None
 if pixel_df is not None and len(pixel_df) > 0:
     purchases_events = pixel_df[pixel_df["event_name"].fillna("").str.lower().str.contains("purchase")]
@@ -254,18 +258,13 @@ if pixel_df is not None and len(pixel_df) > 0:
         unique_purchase_events = purchases_events["event_id"].nunique()
         if unique_purchase_events > 0:
             dup_ratio = (total_purchase_events - unique_purchase_events) / unique_purchase_events
-    else:
-        dup_ratio = None  # cannot estimate without event_id
 
 # ------------------------
 # 2) Objective Misalignment
 # ------------------------
 meta_df["is_bofu_like"] = False
-# Heuristics to flag BOFU/retargeting campaigns
 if "audience_stage" in meta_df.columns and isinstance(meta_df["audience_stage"], pd.Series):
     meta_df["is_bofu_like"] = meta_df["audience_stage"].str.upper().isin(["MOFU","BOFU"])
-
-# fallback: detect "retarget" terms
 mask_rt = meta_df["campaign_name"].str.lower().str.contains("retarget|remarket|cart|viewcontent|view content|dpa|catalog", regex=True)
 meta_df.loc[mask_rt, "is_bofu_like"] = True
 
@@ -289,6 +288,10 @@ ad_perf = meta_df.groupby("ad_name", dropna=True).agg(
     clicks=("clicks","sum")
 ).reset_index()
 
+ctr_low = float(ctr_low)
+freq_high = float(freq_high)
+min_spend_considered = float(min_spend_considered)
+
 ad_perf["is_underperformer"] = (ad_perf["ctr"] < ctr_low) & (ad_perf["freq"] > freq_high) & (ad_perf["spend"] >= min_spend_considered)
 underperf_spend = ad_perf.loc[ad_perf["is_underperformer"], "spend"].sum()
 total_spend = ad_perf["spend"].sum() if len(ad_perf) else 0.0
@@ -297,7 +300,6 @@ underperf_spend_pct = (underperf_spend / total_spend) if total_spend > 0 else 0.
 # ------------------------
 # 4) Audience Overlap (Heuristic)
 # ------------------------
-# We don't have true overlap sizes; we approximate risk by duplicated audience names across ad sets without exclusions.
 if "audience_name" in meta_df.columns:
     aud_counts = meta_df.groupby(["campaign_name","audience_name"]).size().reset_index(name="count")
     duplicated_audiences = aud_counts.groupby("audience_name")["campaign_name"].nunique()
@@ -312,55 +314,46 @@ overlap_spend_pct = (overlap_spend / total_spend) if total_spend > 0 else 0.0
 # ------------------------
 mobile_cr = desktop_cr = None
 mobile_sessions = desktop_sessions = 0.0
-if len(web_df) > 0:
-    if "device" in web_df.columns and "conversion_rate" in web_df.columns:
+if len(web_df) > 0 and "device" in web_df.columns:
+    if "conversion_rate" in web_df.columns:
         mobile_cr = web_df.loc[web_df["device"].str.lower()=="mobile", "conversion_rate"].astype(float).replace([np.inf, -np.inf], np.nan).dropna().mean()
         desktop_cr = web_df.loc[web_df["device"].str.lower()=="desktop", "conversion_rate"].astype(float).replace([np.inf, -np.inf], np.nan).dropna().mean()
+    if "sessions" in web_df.columns:
         mobile_sessions = web_df.loc[web_df["device"].str.lower()=="mobile", "sessions"].astype(float).sum()
         desktop_sessions = web_df.loc[web_df["device"].str.lower()=="desktop", "sessions"].astype(float).sum()
-    else:
-        mobile_cr = desktop_cr = None
 
 avg_page_load_mobile = None
 if "avg_page_load_time" in web_df.columns and "device" in web_df.columns:
     avg_page_load_mobile = web_df.loc[web_df["device"].str.lower()=="mobile", "avg_page_load_time"].astype(float).dropna().mean()
 
-# Estimate loss from mobile underperformance
 mobile_loss = 0.0
 if (mobile_cr is not None) and (desktop_cr is not None) and (mobile_sessions > 0):
-    target_mobile_cr = desktop_cr * mobile_cr_target_factor
+    target_mobile_cr = desktop_cr * float(mobile_cr_target_factor)
     if target_mobile_cr > mobile_cr:
         delta_cr = max(0.0, target_mobile_cr - mobile_cr)
         extra_orders = delta_cr * mobile_sessions
-        mobile_loss = extra_orders * assumed_aov
+        mobile_loss = extra_orders * float(assumed_aov)
 else:
-    # rough estimate using backend revenue and proportion of mobile sessions
     if backend_rev > 0 and len(web_df) > 0 and "sessions" in web_df.columns:
         total_sessions = web_df["sessions"].astype(float).sum()
         if total_sessions > 0:
             mobile_share = mobile_sessions / total_sessions
-            mobile_loss = backend_rev * mobile_share * 0.1  # 10% conservative placeholder
+            mobile_loss = backend_rev * mobile_share * 0.1
 
 # ------------------------
-# Recoverable Revenue Estimates (very conservative, tunable)
+# Recovery Estimates
 # ------------------------
-# Note: Tracking fix doesn't "create" revenue, but prevents bad decisions — we won't count it as revenue here.
-recover_obj = backend_rev * obj_misalignment_spend_pct * uplift_obj_misalignment
-recover_creative = backend_rev * underperf_spend_pct * uplift_creative_fatigue
-recover_overlap = total_spend * uplift_overlap  # efficiency gain applied to spend (could be reallocated to better ROAS)
-recover_checkout = mobile_loss
-
-# Safety: non-negative
-recover_obj = max(0.0, recover_obj)
-recover_creative = max(0.0, recover_creative)
-recover_overlap = max(0.0, recover_overlap)
-recover_checkout = max(0.0, recover_checkout)
-
+recover_obj = max(0.0, backend_rev * obj_misalignment_spend_pct * float(uplift_obj_misalignment))
+recover_creative = max(0.0, backend_rev * underperf_spend_pct * float(uplift_creative_fatigue))
+recover_overlap = max(0.0, total_spend * float(uplift_overlap))
+recover_checkout = max(0.0, mobile_loss)
 total_recoverable = recover_obj + recover_creative + recover_overlap + recover_checkout
 
 # ------------------------
-# Build the Markdown Report
+# Build Markdown Report
 # ------------------------
+period_str = f"{period_start} to {period_end}" if (period_start and period_end) else "Selected Period"
+
 exec_summary = f"""
 # 🚨 Meta Ads Revenue Leak Report  
 **Client:** {client_name}  
@@ -406,7 +399,7 @@ leak2 = f"""
 
 leak3 = f"""
 ## 📊 Leak #3: Creative Fatigue & Underperforming Ads
-**Finding:** {pct(underperf_spend_pct)} of spend went to underperforming ads (CTR < {ctr_low:.2%}, Frequency > {freq_high}).
+**Finding:** {pct(underperf_spend_pct)} of spend went to underperforming ads (CTR < {float(ctr_low):.2%}, Frequency > {float(freq_high)}).
 
 **Impact:** Audience fatigue → rising CPMs and falling ROAS.
 
@@ -483,32 +476,142 @@ bonus = f"""
 - **Ongoing Option:** Monthly Leak Monitoring & Optimization for continuous gains.
 """
 
-report_md = exec_summary + "\n---\n" + leak1 + "\n---\n" + leak2 + "\n---\n" + leak3 + "\n---\n" + leak4 + "\n---\n" + leak5 + "\n---\n" + recovery_table + "\n---\n" + plan + "\n---\n" + bonus
+case_section = ""
+if case_df is not None and len(case_df) > 0:
+    rows = []
+    for _, r in case_df.iterrows():
+        t = str(r.get("title","Case Study"))
+        p = str(r.get("problem",""))
+        a = str(r.get("approach",""))
+        res = str(r.get("result",""))
+        rows.append(f"### {t}\n**Problem:** {p}\n\n**Approach:** {a}\n\n**Result:** {res}\n")
+    case_section = "## 🧪 Case Studies\n" + "\n".join(rows)
 
-st.title("Meta Ads Revenue Leak Report")
-st.caption("Upload client data in the sidebar to generate a client-facing report.")
+report_md = exec_summary + "\n---\n" + leak1 + "\n---\n" + leak2 + "\n---\n" + leak3 + "\n---\n" + leak4 + "\n---\n" + leak5 + "\n---\n" + recovery_table + "\n---\n" + plan + "\n---\n" + bonus + ("\n---\n" + case_section if case_section else "")
 
-# Summary KPIs
+# ------------------------
+# Header with Brand
+# ------------------------
+left, mid, right = st.columns([1,3,1])
+with left:
+    if logo_file is not None:
+        st.image(logo_file, caption=agency_name, use_column_width=True)
+with mid:
+    st.markdown(f"<h2 style='color:{primary_hex};margin-bottom:0;'>Meta Ads Revenue Leak Report</h2>", unsafe_allow_html=True)
+    st.markdown(f"<div style='color:{secondary_hex};'><b>Client:</b> {client_name} &nbsp;&nbsp; <b>Date:</b> {report_date.strftime('%Y-%m-%d')}</div>", unsafe_allow_html=True)
+with right:
+    st.markdown(f"<div style='text-align:right;color:{accent_hex};'><b>Prepared by:</b><br>{prepared_by}</div>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Meta Revenue (period)", money(meta_rev))
 col2.metric("Backend Revenue (period)", money(backend_rev))
 col3.metric("Tracking Diff", money(tracking_diff))
 col4.metric("Total Recoverable (est.)", money(total_recoverable))
 
-st.markdown("---")
+# Report body
 st.subheader("Generated Report (Markdown)")
 st.markdown(report_md)
 
-# Download button
-report_bytes = report_md.encode("utf-8")
+# -------------
+# Downloads
+# -------------
+# Markdown download
+md_bytes = report_md.encode("utf-8")
 st.download_button(
     label="⬇️ Download Report (Markdown)",
-    data=report_bytes,
-    file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_revenue_leak_report_{report_date.strftime('%Y%m%d')}.md",
+    data=md_bytes,
+    file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_report_{report_date.strftime('%Y%m%d')}.md",
     mime="text/markdown",
 )
 
-# Optional: show diagnostics tables
+# Simple HTML download (with branding colors)
+html_report = f"""
+<html>
+<head>
+<meta charset="utf-8">
+<title>Meta Ads Revenue Leak Report</title>
+</head>
+<body style="font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:40px auto;line-height:1.5;">
+<h1 style="color:{primary_hex};">Meta Ads Revenue Leak Report</h1>
+<p><b>Client:</b> {client_name} &nbsp; <b>Date:</b> {report_date.strftime('%Y-%m-%d')} &nbsp; <b>Prepared by:</b> {prepared_by}</p>
+<hr/>
+{report_md.replace("\n","<br/>\n")}
+<hr/>
+<div style="color:#666;">{footer_text}</div>
+</body>
+</html>
+""".encode("utf-8")
+
+st.download_button(
+    label="⬇️ Download Report (HTML)",
+    data=html_report,
+    file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_report_{report_date.strftime('%Y%m%d')}.html",
+    mime="text/html",
+)
+
+# PDF download via ReportLab if available
+def build_pdf(buffer, logo_bytes=None):
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="H1", fontSize=18, leading=22, spaceAfter=8, textColor=colors.HexColor(primary_hex)))
+    styles.add(ParagraphStyle(name="H2", fontSize=14, leading=18, spaceBefore=8, spaceAfter=6, textColor=colors.HexColor(secondary_hex)))
+    styles.add(ParagraphStyle(name="Body", fontSize=10, leading=14))
+    styles.add(ParagraphStyle(name="Small", fontSize=8, leading=10, textColor=colors.grey))
+
+    story = []
+
+    # Header
+    if logo_bytes:
+        try:
+            img = RLImage(io.BytesIO(logo_bytes), width=60*mm, height=20*mm)
+            story.append(img)
+            story.append(Spacer(1, 5*mm))
+        except Exception:
+            pass
+
+    story.append(Paragraph("Meta Ads Revenue Leak Report", styles["H1"]))
+    story.append(Paragraph(f"<b>Client:</b> {client_name} &nbsp;&nbsp; <b>Date:</b> {report_date.strftime('%Y-%m-%d')} &nbsp;&nbsp; <b>Prepared by:</b> {prepared_by}", styles["Body"]))
+    story.append(Spacer(1, 5*mm))
+
+    # Split markdown sections naively by '##' to create paragraphs
+    sections = report_md.split("## ")
+    # First chunk may include the main title; add as body
+    if sections:
+        story.append(Paragraph(sections[0].replace("\n","<br/>"), styles["Body"]))
+        story.append(Spacer(1, 4*mm))
+
+    for sec in sections[1:]:
+        lines = sec.splitlines()
+        header = lines[0].strip()
+        body = "\n".join(lines[1:]).replace("\n","<br/>")
+        story.append(Paragraph(header, styles["H2"]))
+        story.append(Paragraph(body, styles["Body"]))
+        story.append(Spacer(1, 3*mm))
+
+    story.append(Spacer(1, 6*mm))
+    story.append(Paragraph(footer_text, styles["Small"]))
+
+    doc.build(story)
+
+if REPORTLAB_AVAILABLE:
+    logo_bytes = None
+    if logo_file is not None:
+        logo_bytes = logo_file.read()
+    pdf_buffer = io.BytesIO()
+    build_pdf(pdf_buffer, logo_bytes=logo_bytes)
+    st.download_button(
+        label="⬇️ Download Report (PDF)",
+        data=pdf_buffer.getvalue(),
+        file_name=f"{client_name.replace(' ','_').lower()}_meta_ads_report_{report_date.strftime('%Y%m%d')}.pdf",
+        mime="application/pdf",
+    )
+else:
+    st.warning("ReportLab not installed. To enable PDF export, run: pip install reportlab")
+
+# Diagnostics Expanders
 with st.expander("Diagnostics: Objective Alignment & Creative Performance"):
     st.write("**BOFU Spend (est.)**:", money(bofu_spend))
     st.write("**BOFU Spend on Wrong Objective**:", money(bofu_spend_wrong_obj))
@@ -525,8 +628,7 @@ with st.expander("Diagnostics: Audience Overlap Heuristic"):
 
 with st.expander("Diagnostics: Web & Checkout"):
     if len(web_df) > 0:
-        st.write("Mobile sessions:", int(mobile_sessions), "| Desktop sessions:", int(desktop_sessions))
-        if mobile_cr is not None and desktop_cr is not None:
+        if (mobile_cr is not None) and (desktop_cr is not None):
             st.write("Mobile CR:", pct(mobile_cr), "Desktop CR:", pct(desktop_cr))
         if avg_page_load_mobile is not None:
             st.write("Avg Mobile Page Load (s):", round(avg_page_load_mobile,2))
@@ -542,12 +644,11 @@ with st.expander("Notes & Assumptions"):
     - **Overlap Efficiency** assumption: {pct(uplift_overlap)} applied to total spend  
     - **Mobile CR Target**: {pct(mobile_cr_target_factor)} × Desktop CR  
     - Tracking fixes are treated as **risk mitigation** (do not count as revenue directly).
+    - Colors: Primary {primary_hex}, Secondary {secondary_hex}, Accent {accent_hex}.
     """)
-
 '''
 
-# Write the app code to a file for the user to download
-with open('/mnt/data/meta_ads_revenue_leak_report_app.py', 'w', encoding='utf-8') as f:
+with open('/mnt/data/meta_ads_revenue_leak_report_app_branded.py', 'w', encoding='utf-8') as f:
     f.write(app_code)
 
-'/mnt/data/meta_ads_revenue_leak_report_app.py'
+'/mnt/data/meta_ads_revenue_leak_report_app_branded.py'
