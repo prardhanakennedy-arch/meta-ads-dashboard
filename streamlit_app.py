@@ -1,5 +1,4 @@
 
-
 # streamlit_app.py
 # ----------------
 # Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs)
@@ -14,6 +13,33 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from plotly import express as px
+
+# ---- Plotly style helper (minimal, soft grid, unified hover) ----
+def apply_chart_style(fig, height=240):
+    fig.update_layout(
+        height=height,
+        template='simple_white',
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=10, r=10, t=10, b=10),
+        hovermode='x unified',
+        hoverlabel=dict(font=dict(family='Poppins', size=12)),
+        xaxis=dict(
+            showgrid=False,
+            tickfont=dict(color='#6b7280', size=12),
+            linecolor='#e5e7eb',
+            mirror=False
+        ),
+        yaxis=dict(
+            gridcolor='#eef2f7',
+            zeroline=False,
+            tickfont=dict(color='#6b7280', size=12),
+            linecolor='#e5e7eb'
+        ),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+    )
+    return fig
+
 
 # Optional PDF export (kept optional; no file writes)
 REPORTLAB_AVAILABLE = False
@@ -44,7 +70,18 @@ st.markdown("""
   .kpi-sub { font-size:12px; color:var(--muted); margin-top:2px; }
   .section-title { margin: 8px 0 6px; }
   .table-card .row_heading, .table-card .blank {display:none;}
-  .card { overflow: hidden; }
+  .card { 
+    overflow: hidden; 
+    border-radius: 18px; 
+    box-shadow: 0 10px 24px rgba(17,24,39,0.06); 
+  }
+  .chart-card { 
+    background:var(--card-bg); 
+    border:1px solid var(--card-border); 
+    border-radius:18px; 
+    padding:12px 12px 6px; 
+    box-shadow:0 10px 24px rgba(17,24,39,0.06);
+  }
   .card ul { margin: 0; padding-left: 1.1rem; }
   .card li { margin: 4px 0; }
   .card .note { font-size:12px; color:var(--muted); margin-top:6px; }
@@ -136,8 +173,8 @@ min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", valu
 # ------------------------
 # Header
 # ------------------------
-st.title("Wittelsbach AI - Revenue Leak Finder ")
-st.caption("Focus: where money is leaking, how much, and what to do right now.")
+st.title("Revenue Leak Finder — Simple, Actionable, FOMO Ready")
+st.caption("Focus: where money is leaking, how much, and what to do right now. No jargon.")
 
 if ads_file is None:
     st.info("Upload your **Ads CSV** (Meta OR Google) to get started. Optional: Backend Orders CSV, Web Analytics CSV.")
@@ -235,44 +272,46 @@ st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 c1, c2, c3 = st.columns([2,2,2])
 
 with c1:
-    st.markdown('<div class="card">Clicks over time', unsafe_allow_html=True)
+    st.markdown('<div class="chart-card">**Clicks over time**', unsafe_allow_html=True)
     if "date" in U.columns and pd.notna(U["date"]).any():
         ts = U.groupby("date", dropna=True)["clicks"].sum().reset_index()
-        fig = px.line(ts, x="date", y="clicks", markers=True, labels={"date":"Date","clicks":"Clicks"}, title=None)
-        fig.update_traces(hovertemplate="Date: %{x}<br>Clicks: %{y:,}")
-        fig.update_layout(margin=dict(l=10,r=10,t=10,b=10), hoverlabel=dict(font_family="Poppins"))
+        fig = px.line(ts, x="date", y="clicks", markers=False, labels={"date":"Date","clicks":"Clicks"}, title=None)
+        fig.update_traces(hovertemplate="Date: %{x|%b %d}<br>Clicks: %{y:,}", line=dict(width=2.6), fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.08)')
+        apply_chart_style(fig)
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
         st.write("No dates in file.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with c2:
-    st.markdown('<div class="card">Top campaigns by clicks', unsafe_allow_html=True)
+    st.markdown('<div class="chart-card">**Top campaigns by clicks**', unsafe_allow_html=True)
     if "campaign_name" in U.columns:
         topc = (U.groupby("campaign_name")["clicks"].sum().sort_values(ascending=False).head(8).reset_index())
         fig2 = px.bar(topc, x="campaign_name", y="clicks", labels={"campaign_name":"Campaign","clicks":"Clicks"}, title=None)
-        fig2.update_traces(hovertemplate="%{x}<br>Clicks: %{y:,}")
-        fig2.update_layout(xaxis_tickangle=-30, margin=dict(l=10,r=10,t=10,b=60), hoverlabel=dict(font_family="Poppins"))
+        fig2.update_traces(hovertemplate="%{x}<br>Clicks: %{y:,}", marker_line_color='#e5e7eb', marker_line_width=1)
+        apply_chart_style(fig2)
+        fig2.update_layout(xaxis_tickangle=-20)
         st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
     else:
         st.write("No campaign field in file.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with c3:
-    st.markdown('<div class="card">Audience / Segment share', unsafe_allow_html=True)
+    st.markdown('<div class="chart-card">**Audience / Segment share**', unsafe_allow_html=True)
     pie_field = "audience_name" if "audience_name" in U.columns and U["audience_name"].astype(str).str.len().max()>0 else ("adset_name" if "adset_name" in U.columns else None)
     if pie_field:
         pie = (U.groupby(pie_field)["clicks"].sum().sort_values(ascending=False).head(6).reset_index())
-        fig3 = px.pie(pie, names=pie_field, values="clicks", hole=.55)
-        fig3.update_traces(textinfo="label+percent", hovertemplate="%{label}<br>Clicks: %{value:,} (%{percent})")
-        fig3.update_layout(showlegend=False, margin=dict(l=10,r=10,t=10,b=10), hoverlabel=dict(font_family="Poppins"))
+        fig3 = px.pie(pie, names=pie_field, values="clicks", hole=.6)
+        fig3.update_traces(textinfo="none", hovertemplate="%{label}<br>%{percent}")
+        fig3.update_layout(showlegend=True)
+        apply_chart_style(fig3, height=240)
         st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
     else:
         st.write("No audience/segment field to chart.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Top rows sample
-st.markdown('<div class="card">Top Performing Ad Sets </div>', unsafe_allow_html=True)
+st.markdown('<div class="card">**Top rows (sample)**</div>', unsafe_allow_html=True)
 sample_cols = [c for c in ["adset_name","campaign_name","clicks","impressions"] if c in U.columns]
 if sample_cols:
     st.dataframe(U[sample_cols].head(12), use_container_width=True, height=300)
