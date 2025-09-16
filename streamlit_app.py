@@ -1,8 +1,11 @@
 
+
 # streamlit_app.py
 # ----------------
-# Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs), no duplicates
-# NOTE: This app does NOT write to disk anywhere.
+# Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs)
+# NO "Your Biggest Leaks" section in UI
+# NO per-leak details in the downloadable report
+# No filesystem writes anywhere.
 
 import io
 from datetime import date
@@ -273,7 +276,7 @@ else:
     st.write("No matching columns to preview.")
 
 # ------------------------
-# Leak calculations
+# Leak calculations (kept for math, but not displayed as cards)
 # ------------------------
 leaks = []
 
@@ -527,27 +530,9 @@ for i, r in enumerate(rows, start=1):
             st.caption(r["Note"])
         st.markdown('</div>', unsafe_allow_html=True)
 
-# Single post-milestones section (no duplicates below)
-# Single downloads block
-def leak_card(L):
-    st.markdown(f"#### {L['name']}")
-    st.markdown(f"- **Type:** {L['category']}")
-    st.markdown(f"- **Where:** {L['where']}")
-    st.markdown(f"- **Root cause:** {L['root']}")
-    if L["impact"]>0:
-        st.markdown(f"- **Estimated revenue impact:** {money(L['impact'])} / month")
-    if L.get("impact_note"):
-        st.markdown(f"- **Note:** {L['impact_note']}")
-    st.markdown("**What to do next:**")
-    st.markdown("\\n".join([f"  1. {a}" if i==0 else f"  {i+1}. {a}" for i,a in enumerate(L['actions'])]))
-    st.markdown("---")
-
-for L in money_leaks: leak_card(L)
-if risk_leaks:
-    st.subheader("Fix These to Avoid Bad Decisions (No direct $ but critical)")
-    for L in risk_leaks: leak_card(L)
-
-# Single downloads block
+# ------------------------
+# Downloads — NO per-leak details
+# ------------------------
 report_md_lines = [
     f"# Revenue Leak Report — {platform}",
     f"**Period:** {period_str}",
@@ -558,18 +543,14 @@ report_md_lines = [
     f"- After fixes (monthly): {money(after_revenue)}",
     f"- Gain (monthly): {money(delta_rev)}",
     "",
-    "## Top Leaks",
+    "## Milestones — 5 Priority Leaks",
 ]
-for L in money_leaks + risk_leaks:
+
+# Summarize milestones without leak action text
+for r in rows:
     report_md_lines += [
-        f"### {L['name']}",
-        f"- Type: {L['category']}",
-        f"- Where: {L['where']}",
-        f"- Root: {L['root']}",
-        (f"- Estimated monthly impact: {money(L['impact'])}" if L['impact']>0 else "- Impact: risk / accuracy"),
-        (f"- Note: {L.get('impact_note','')}" if L.get('impact_note') else ""),
-        "- What to do next:",
-    ] + [f"  - {a}" for a in L['actions']] + [""]
+        f"- **{r['Phase']}** — {r['Name']} | Monthly recovery: {money(r['Monthly Recovery'])} | Duration: {int(r['Duration (days)'])}d | {r['Start']} → {r['Due']}"
+    ]
 
 report_md = "\n".join(report_md_lines).encode("utf-8")
 st.download_button("⬇️ Download Report (.md)", data=report_md, file_name="revenue_leak_report.md", mime="text/markdown")
@@ -598,7 +579,7 @@ def pdf_from_md(md_text):
     doc.build(story)
     return buf.getvalue()
 
-# PDF export is optional; left commented to avoid extra dependency by default.
+# PDF export optional (commented out to avoid extra dependency by default)
 # if REPORTLAB_AVAILABLE:
 #     pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
 #     if pdf_bytes:
