@@ -20,7 +20,7 @@ try:
 except Exception:
     REPORTLAB_AVAILABLE = False
 
-st.set_page_config(page_title="Revenue Leak Finder (Plain, FOMO)", layout="wide")
+st.set_page_config(page_title= "Wittelsbach AI Ad Revenue Leaks Report" )", layout="wide")
 
 # ------------------------
 # Global styles (Poppins + cards)
@@ -117,8 +117,8 @@ min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", valu
 # ------------------------
 # Header (unchanged copy)
 # ------------------------
-st.title("Revenue Leak Finder — Simple, Actionable, FOMO Ready")
-st.caption("Focus: where money is leaking, how much, and what to do right now. No jargon.")
+st.title("Wittelsbach AI Ad Revenue Leaks Report")
+st.caption("Focus: where money is leaking, how much, and what to do right now.")
 
 if ads_file is None:
     st.info("Upload your **Ads CSV** (Meta OR Google) to get started. Optional: Backend Orders CSV, Web Analytics CSV.")
@@ -441,6 +441,110 @@ bt = pd.DataFrame({
 }).round(2)
 st.subheader("Revenue: Before vs After (Estimates)")
 st.table(bt.style.format({"Monthly Revenue":"${:,.0f}","Annual Revenue":"${:,.0f}"}))
+
+# =========================
+# Milestones (5 priority leaks) — add below your Before/After table
+# Requires: leaks, money_leaks, risk_leaks, current_revenue already computed
+# =========================
+st.subheader("Milestone Plan — 5 Priority Leaks")
+
+# 1) Choose the 5 priority leaks in the order you want to execute
+priority_order = [
+    "Tracking/Reporting Mismatch",   # Phase 1 (risk control – not counted in $ but critical)
+    "Wrong Goal for Retargeting",    # Phase 2
+    "Tired/Weak Ads",                # Phase 3
+    "Paying Twice for the Same People",  # Phase 4
+    "Mobile Drop-offs",              # Phase 5
+]
+
+# 2) Default durations (days) for each phase — tweak if you like
+default_durations = {
+    "Tracking/Reporting Mismatch": 3,
+    "Wrong Goal for Retargeting": 1,
+    "Tired/Weak Ads": 7,
+    "Paying Twice for the Same People": 2,
+    "Mobile Drop-offs": 14,
+}
+
+# 3) Map names -> leak dicts (so we can pull $ impact / notes already calculated)
+leak_by_name = {L["name"]: L for L in leaks}
+
+# 4) Build milestone rows with schedule (auto-sequenced)
+rows = []
+cursor = pd.Timestamp(date.today())  # start today
+for idx, name in enumerate(priority_order, start=1):
+    L = leak_by_name.get(name, {
+        "name": name, "category": "—", "where": "—", "root": "—",
+        "impact": 0.0, "impact_note": "", "actions": []
+    })
+    duration_days = int(default_durations.get(name, 7))
+    start_dt = cursor
+    end_dt = cursor + pd.Timedelta(days=duration_days)
+    cursor = end_dt + pd.Timedelta(days=1)  # next phase starts after this one
+
+    monthly_gain = float(max(0.0, L.get("impact", 0.0)))
+    annual_gain = monthly_gain * 12.0
+
+    rows.append({
+        "Phase": f"{idx}. {name}",
+        "Type": L.get("category", "—"),
+        "Where": L.get("where", "—"),
+        "Root cause": L.get("root", "—"),
+        "Est. Monthly Recovery": monthly_gain,
+        "Est. Annual Recovery": annual_gain,
+        "Duration (days)": duration_days,
+        "Start": start_dt.date(),
+        "Due": end_dt.date(),
+    })
+
+milestones_df = pd.DataFrame(rows)
+
+# 5) Show total recovery (only money-leaks are counted)
+phased_total_monthly = float(sum(r["Est. Monthly Recovery"] for r in rows))
+phased_total_annual = phased_total_monthly * 12.0
+st.markdown(f"**Total recoverable across phases (est.):** ${phased_total_monthly:,.0f} / month  |  ${phased_total_annual:,.0f} / year")
+
+# 6) Display milestones in a neat table (keeps your Poppins styling)
+st.table(
+    milestones_df.style.format({
+        "Est. Monthly Recovery": "${:,.0f}",
+        "Est. Annual Recovery": "${:,.0f}",
+        "Duration (days)": "{:,.0f}",
+    })
+)
+
+# 7) Optional: quick action list under each milestone (reuse your existing actions text)
+with st.expander("See step-by-step actions for each phase"):
+    for r in rows:
+        L = leak_by_name.get(r["Phase"].split(". ",1)[1])
+        st.markdown(f"**{r['Phase']}**  \n*Window:* {r['Start']} → {r['Due']}")
+        if L and L.get("actions"):
+            st.markdown("\n".join([f"- {a}" for a in L["actions"]]))
+        if L and L.get("impact_note"):
+            st.caption(f"Note: {L['impact_note']}")
+        st.markdown("---")
+
+# 8) Download milestones (Markdown)
+milestones_md = ["# Milestones — 5 Priority Leaks\n"]
+for r in rows:
+    milestones_md += [
+        f"## {r['Phase']}",
+        f"- Type: {r['Type']}",
+        f"- Where: {r['Where']}",
+        f"- Root cause: {r['Root cause']}",
+        f"- Est. monthly recovery: ${r['Est. Monthly Recovery']:,.0f}",
+        f"- Est. annual recovery: ${r['Est. Annual Recovery']:,.0f}",
+        f"- Duration: {int(r['Duration (days)'])} days",
+        f"- Start → Due: {r['Start']} → {r['Due']}",
+        ""
+    ]
+st.download_button(
+    "⬇️ Download Milestones (.md)",
+    data="\n".join(milestones_md).encode("utf-8"),
+    file_name="milestones_5_priority_leaks.md",
+    mime="text/markdown"
+)
+
 
 # Leak cards
 def leak_card(L):
