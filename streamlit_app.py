@@ -527,49 +527,7 @@ for i, r in enumerate(rows, start=1):
             st.caption(r["Note"])
         st.markdown('</div>', unsafe_allow_html=True)
 
-# Single post-milestones section (no duplicates below)
-st.subheader("Your Biggest Leaks (Money First)")
-def leak_card(L):
-    st.markdown(f"#### {L['name']}")
-    st.markdown(f"- **Type:** {L['category']}")
-    st.markdown(f"- **Where:** {L['where']}")
-    st.markdown(f"- **Root cause:** {L['root']}")
-    if L["impact"]>0:
-        st.markdown(f"- **Estimated revenue impact:** {money(L['impact'])} / month")
-    if L.get("impact_note"):
-        st.markdown(f"- **Note:** {L['impact_note']}")
-    st.markdown("**What to do next:**")
-    st.markdown("\\n".join([f"  1. {a}" if i==0 else f"  {i+1}. {a}" for i,a in enumerate(L['actions'])]))
-    st.markdown("---")
 
-for L in money_leaks: leak_card(L)
-if risk_leaks:
-    st.subheader("Fix These to Avoid Bad Decisions (No direct $ but critical)")
-    for L in risk_leaks: leak_card(L)
-
-# Single downloads block
-report_md_lines = [
-    f"# Revenue Leak Report — {platform}",
-    f"**Period:** {period_str}",
-    f"**Estimated monthly leak:** {money(total_recoverable)}  |  **Annualized:** {money(annual_leak)}",
-    "",
-    "## Revenue: Before vs After (Est.)",
-    f"- Current monthly revenue: {money(current_revenue)}",
-    f"- After fixes (monthly): {money(after_revenue)}",
-    f"- Gain (monthly): {money(delta_rev)}",
-    "",
-    "## Top Leaks",
-]
-for L in money_leaks + risk_leaks:
-    report_md_lines += [
-        f"### {L['name']}",
-        f"- Type: {L['category']}",
-        f"- Where: {L['where']}",
-        f"- Root: {L['root']}",
-        (f"- Estimated monthly impact: {money(L['impact'])}" if L['impact']>0 else "- Impact: risk / accuracy"),
-        (f"- Note: {L.get('impact_note','')}" if L.get('impact_note') else ""),
-        "- What to do next:",
-    ] + [f"  - {a}" for a in L['actions']] + [""]
 
 report_md = "\n".join(report_md_lines).encode("utf-8")
 st.download_button("⬇️ Download Report (.md)", data=report_md, file_name="revenue_leak_report.md", mime="text/markdown")
