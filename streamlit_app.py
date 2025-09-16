@@ -1,9 +1,11 @@
-# Write an updated, de-duplicated Streamlit app that keeps only the redesigned Milestones section
-# and a single copy of the leaks + downloads. No filesystem writes in the app.
+# Create a self-contained, cleaned Streamlit app with NO filesystem writes inside the app.
+# Saves as /mnt/data/streamlit_app_clean.py for download.
+
 code = r'''
 # streamlit_app.py
 # ----------------
 # Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs), no duplicates
+# NOTE: This app does NOT write to disk anywhere.
 
 import io
 from datetime import date
@@ -13,7 +15,7 @@ import pandas as pd
 import streamlit as st
 from plotly import express as px
 
-# Optional PDF export
+# Optional PDF export (kept optional; no file writes)
 REPORTLAB_AVAILABLE = False
 try:
     from reportlab.lib.pagesizes import A4
@@ -583,30 +585,31 @@ html_bytes = f"""
 """.encode("utf-8")
 st.download_button("⬇️ Download Report (.html)", data=html_bytes, file_name="revenue_leak_report.html", mime="text/html")
 
+# Optional PDF (in-memory only; still no file writes)
 def pdf_from_md(md_text):
-    if not REPORTLAB_AVAILABLE: return None
+    if not REPORTLAB_AVAILABLE: 
+        return None
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesizes=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="H1", fontSize=18, leading=22, spaceAfter=8))
     styles.add(ParagraphStyle(name="Body", fontSize=10, leading=14))
     story = [Paragraph("Revenue Leak Report", styles["H1"]), Spacer(1, 6)]
-    for block in md_text.split("\n\n"):
-        story.append(Paragraph(block.replace("\n","<br/>"), styles["Body"]))
+    for block in md_text.split("\\n\\n"):
+        story.append(Paragraph(block.replace("\\n","<br/>"), styles["Body"]))
         story.append(Spacer(1, 3))
-    doc.build(story); return buf.getvalue()
+    doc.build(story)
+    return buf.getvalue()
 
-if REPORTLAB_AVAILABLE:
-    try:
-        pdf_bytes = None
-        # Commenting PDF to avoid reportlab dependency issues by default
-        # pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
-        if pdf_bytes:
-            st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
-    except Exception:
-        pass
+# Uncomment if you want PDF enabled
+# if REPORTLAB_AVAILABLE:
+#     pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
+#     if pdf_bytes:
+#         st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
 '''
-with open('/mnt/data/streamlit_app.py', 'w', encoding='utf-8') as f:
+
+path = "/mnt/data/streamlit_app_clean.py"
+with open(path, "w", encoding="utf-8") as f:
     f.write(code)
 
-'/mnt/data/streamlit_app.py'
+path
