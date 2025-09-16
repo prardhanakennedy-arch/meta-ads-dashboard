@@ -518,14 +518,51 @@ for idx, name in enumerate(priority_order, start=1):
 milestones_df = pd.DataFrame(rows)
 
 # ---- OVERVIEW header pills (purely visual, tabs are below) ----
-st.markdown('<div class="pillbar">'
-            '<span class="pill">Overview</span>'
-            '<span class="pill">Phase 1</span>'
-            '<span class="pill">Phase 2</span>'
-            '<span class="pill">Phase 3</span>'
-            '<span class="pill">Phase 4</span>'
-            '<span class="pill">Phase 5</span>'
-            '</div>', unsafe_allow_html=True)
+# --- Pill-styled real tabs (replace the pillbar you removed) ---
+st.markdown("""
+<style>
+div[data-baseweb="tab-list"] { gap: 8px; }
+button[role="tab"] {
+  background:#fff; border:1px solid #e5e7eb; border-radius:999px;
+  padding:6px 12px; font-size:13px; color:#111827; box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+button[aria-selected="true"] {
+  background:#eef2ff; border-color:#6366f1; color:#3730a3; font-weight:600;
+}
+</style>
+""", unsafe_allow_html=True)
+
+tab_labels = ["Overview"] + [r["Phase"] for r in rows]
+tabs = st.tabs(tab_labels)
+
+# OVERVIEW
+with tabs[0]:
+    show_cols = ["Phase","Type","Where","Monthly Recovery","Duration (days)","Start","Due"]
+    st.table(
+        milestones_df[show_cols].style.format({
+            "Monthly Recovery": "${:,.0f}",
+            "Duration (days)": "{:,.0f}"
+        })
+    )
+
+# PHASE TABS
+for i, r in enumerate(rows, start=1):
+    with tabs[i]:
+        pcol1, pcol2, pcol3 = st.columns([2,1,1])
+        with pcol1:
+            st.write(f"**Leak:** {r['Name']}  \n*{r['Type']} • {r['Where']}*")
+        with pcol2:
+            st.write(f"**Monthly recovery:** ${r['Monthly Recovery']:,.0f}  \n_{r['% of Total']*100:,.0f}% of total_")
+        with pcol3:
+            st.write(f"**Duration:** {int(r['Duration (days)'])} days  \n_{r['Start']} → {r['Due']}_")
+        st.write("**Root cause**")
+        st.write(r["Root cause"])
+        st.write("**What to do this phase**")
+        if r["Actions"]:
+            st.markdown("\n".join([f"- {a}" for a in r["Actions"]]))
+        if r["Note"]:
+            st.caption(r["Note"])
+
 
 # ---- Overview KPI cards ----
 t1, t2, t3 = st.columns(3)
