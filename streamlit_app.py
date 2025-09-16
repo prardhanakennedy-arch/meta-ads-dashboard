@@ -605,8 +605,5 @@ def pdf_from_md(md_text):
 #     if pdf_bytes:
 #         st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
 '''
-path = "/mnt/data/streamlit_app.py"
-with open(path, "w", encoding="utf-8") as f:
-    f.write(clean_code)
 
 path
