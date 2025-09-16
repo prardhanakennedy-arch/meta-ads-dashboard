@@ -173,8 +173,8 @@ min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", valu
 # ------------------------
 # Header
 # ------------------------
-st.title("Revenue Leak Finder — Simple, Actionable, FOMO Ready")
-st.caption("Focus: where money is leaking, how much, and what to do right now. No jargon.")
+st.title("Wittelsbach AI Revenue Leak Finder")
+st.caption("Focus: where money is leaking, how much, and what to do right now.")
 
 if ads_file is None:
     st.info("Upload your **Ads CSV** (Meta OR Google) to get started. Optional: Backend Orders CSV, Web Analytics CSV.")
@@ -272,7 +272,7 @@ st.markdown("<div class='section-title'></div>", unsafe_allow_html=True)
 c1, c2, c3 = st.columns([2,2,2])
 
 with c1:
-    st.markdown('<div class="chart-card">**Clicks over time**', unsafe_allow_html=True)
+    st.markdown('<div class="chart-card">*Clicks over time', unsafe_allow_html=True)
     if "date" in U.columns and pd.notna(U["date"]).any():
         ts = U.groupby("date", dropna=True)["clicks"].sum().reset_index()
         fig = px.line(ts, x="date", y="clicks", markers=False, labels={"date":"Date","clicks":"Clicks"}, title=None)
@@ -284,7 +284,7 @@ with c1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with c2:
-    st.markdown('<div class="chart-card">**Top campaigns by clicks**', unsafe_allow_html=True)
+    st.markdown('<div class="chart-card">Top campaigns by clicks', unsafe_allow_html=True)
     if "campaign_name" in U.columns:
         topc = (U.groupby("campaign_name")["clicks"].sum().sort_values(ascending=False).head(8).reset_index())
         fig2 = px.bar(topc, x="campaign_name", y="clicks", labels={"campaign_name":"Campaign","clicks":"Clicks"}, title=None)
@@ -297,7 +297,7 @@ with c2:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with c3:
-    st.markdown('<div class="chart-card">**Audience / Segment share**', unsafe_allow_html=True)
+    st.markdown('<div class="chart-card">Audience / Segment share', unsafe_allow_html=True)
     pie_field = "audience_name" if "audience_name" in U.columns and U["audience_name"].astype(str).str.len().max()>0 else ("adset_name" if "adset_name" in U.columns else None)
     if pie_field:
         pie = (U.groupby(pie_field)["clicks"].sum().sort_values(ascending=False).head(6).reset_index())
