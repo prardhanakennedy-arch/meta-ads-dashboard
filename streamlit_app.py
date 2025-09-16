@@ -204,14 +204,23 @@ if uploaded_file is not None:
         
         st.markdown(f"**Daily: ${daily_waste:.0f} • Weekly: ${daily_waste*7:.0f} • Monthly: ${wasted:.0f}**")
         
-        # Donut chart
+        # Modern donut chart with gradient-like colors
         fig_donut = go.Figure(data=[go.Pie(
             labels=['Effective Spend', 'Wasted Spend'],
             values=[effective_spend, wasted],
-            hole=.5,
-            marker_colors=['#2E8B57', '#DC143C']
+            hole=.6,
+            marker_colors=['#4ECDC4', '#FF6B9D'],
+            textinfo='label+percent',
+            textfont_size=14,
+            marker_line=dict(color='white', width=3)
         )])
-        fig_donut.update_layout(title="Effective vs Wasted Spend", height=300, template='plotly_white')
+        fig_donut.update_layout(
+            title=dict(text="Effective vs Wasted Spend", font_size=18, x=0.5),
+            height=350, 
+            template='plotly_white',
+            showlegend=False,
+            margin=dict(t=60, b=20, l=20, r=20)
+        )
         st.plotly_chart(fig_donut, use_container_width=True)
         
         # Section B - Account Overview
@@ -223,16 +232,43 @@ if uploaded_file is not None:
                 'revenue': 'sum'
             }).reset_index()
             
+            # Modern gradient area chart
             fig_trend = go.Figure()
-            fig_trend.add_trace(go.Scatter(
-                x=daily_data['date'], y=daily_data['spend'],
-                fill='tonexty', name='Spend', line_color='#FF6B6B'
-            ))
+            
+            # Revenue area with gradient
             fig_trend.add_trace(go.Scatter(
                 x=daily_data['date'], y=daily_data['revenue'],
-                fill='tonexty', name='Revenue', line_color='#4ECDC4'
+                fill='tozeroy',
+                mode='lines+markers',
+                name='Revenue',
+                line=dict(color='#4ECDC4', width=3),
+                marker=dict(size=6, color='#4ECDC4'),
+                fillcolor='rgba(78, 205, 196, 0.3)'
             ))
-            fig_trend.update_layout(title="Spend vs Revenue Trend", height=300, template='plotly_white')
+            
+            # Spend area with gradient
+            fig_trend.add_trace(go.Scatter(
+                x=daily_data['date'], y=daily_data['spend'],
+                fill='tozeroy',
+                mode='lines+markers',
+                name='Spend',
+                line=dict(color='#FF6B9D', width=3),
+                marker=dict(size=6, color='#FF6B9D'),
+                fillcolor='rgba(255, 107, 157, 0.3)'
+            ))
+            
+            fig_trend.update_layout(
+                title=dict(text="Spend vs Revenue Trend", font_size=18, x=0.5),
+                height=350,
+                template='plotly_white',
+                hovermode='x unified',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(t=80, b=40, l=40, r=40),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
+            )
+            fig_trend.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
+            fig_trend.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
             st.plotly_chart(fig_trend, use_container_width=True)
         else:
             st.info("📅 No date column found - skipping trend analysis")
@@ -245,16 +281,36 @@ if uploaded_file is not None:
         with col3:
             st.metric("Avg Frequency", f"{metrics['avg_freq']:.1f}")
         
-        # Funnel chart
+        # Modern funnel chart with gradients
         funnel_data = [metrics['total_impressions'], metrics['total_clicks'], 
                       metrics.get('total_atc', metrics['total_clicks'] * 0.1), metrics['total_purchases']]
-        fig_funnel = go.Figure(go.Funnel(
+        
+        fig_funnel = go.Figure()
+        
+        # Create gradient colors for funnel
+        colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c']
+        
+        fig_funnel.add_trace(go.Funnel(
             y=['Impressions', 'Clicks', 'Add to Cart', 'Purchases'],
             x=funnel_data,
-            texttemplate='%{x:,.0f}',
-            textposition='inside'
+            texttemplate='%{x:,.0f}<br>%{percentPrevious}',
+            textposition='inside',
+            textfont=dict(color='white', size=14),
+            marker=dict(
+                color=colors,
+                line=dict(width=2, color='white')
+            ),
+            connector=dict(line=dict(color='rgba(255,255,255,0.3)', dash='dot', width=2))
         ))
-        fig_funnel.update_layout(title="Conversion Funnel", height=300, template='plotly_white')
+        
+        fig_funnel.update_layout(
+            title=dict(text="Conversion Funnel", font_size=18, x=0.5),
+            height=400,
+            template='plotly_white',
+            margin=dict(t=60, b=40, l=40, r=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
         st.plotly_chart(fig_funnel, use_container_width=True)
         
         # Section C - Top Leaks
@@ -308,13 +364,35 @@ if uploaded_file is not None:
         action_df['Est. Monthly Recovery $'] = action_df['Est. Monthly Recovery $'].apply(lambda x: f"${x:,.0f}")
         st.dataframe(action_df, use_container_width=True, hide_index=True)
         
-        fig_recovery = px.bar(
-            x=[action[1] for action in actions],
-            y=[action[0] for action in actions],
+        # Modern horizontal bar chart for recovery actions
+        actions_df = pd.DataFrame(actions, columns=['Action', 'Recovery'])
+        
+        fig_recovery = go.Figure()
+        fig_recovery.add_trace(go.Bar(
+            y=actions_df['Action'],
+            x=actions_df['Recovery'],
             orientation='h',
-            title="Recovery by Action"
+            marker=dict(
+                color=['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe'],
+                cornerradius=10,
+                line=dict(width=0)
+            ),
+            text=[f'${val:,.0f}' for val in actions_df['Recovery']],
+            textposition='inside',
+            textfont=dict(color='white', size=12)
+        ))
+        
+        fig_recovery.update_layout(
+            title=dict(text="Recovery by Action", font_size=18, x=0.5),
+            height=350,
+            template='plotly_white',
+            showlegend=False,
+            margin=dict(t=60, b=40, l=200, r=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
-        fig_recovery.update_layout(height=300, template='plotly_white')
+        fig_recovery.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
+        fig_recovery.update_yaxes(showgrid=False)
         st.plotly_chart(fig_recovery, use_container_width=True)
         
         st.markdown(f"**Total Recovery Potential: ${wasted:,.0f} / month**")
@@ -322,18 +400,71 @@ if uploaded_file is not None:
         # Section E - Forecast
         st.markdown("## ⚡ Forecast & 'Do Nothing' Loss")
         
+        # Modern comparison chart with gradients
+        comparison_data = pd.DataFrame({
+            'Category': ['Effective Spend Now', 'Total Spend (After Fixes)'],
+            'Amount': [effective_spend, metrics['total_spend']],
+            'Colors': ['#4ECDC4', '#667eea']
+        })
+        
         fig_comparison = go.Figure()
-        fig_comparison.add_trace(go.Bar(name='Effective Spend Now', x=['Current'], y=[effective_spend]))
-        fig_comparison.add_trace(go.Bar(name='After Fixes', x=['Current'], y=[metrics['total_spend']]))
-        fig_comparison.update_layout(title="Effective Spend: Now vs After Fixes", height=300, template='plotly_white')
+        fig_comparison.add_trace(go.Bar(
+            x=comparison_data['Category'],
+            y=comparison_data['Amount'],
+            marker=dict(
+                color=comparison_data['Colors'],
+                cornerradius=15,
+                line=dict(width=0)
+            ),
+            text=[f'${val:,.0f}' for val in comparison_data['Amount']],
+            textposition='outside',
+            textfont=dict(size=14, color='#333')
+        ))
+        
+        fig_comparison.update_layout(
+            title=dict(text="Effective Spend: Now vs After Fixes", font_size=18, x=0.5),
+            height=350,
+            template='plotly_white',
+            showlegend=False,
+            margin=dict(t=80, b=40, l=40, r=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+        fig_comparison.update_xaxes(showgrid=False)
+        fig_comparison.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
         st.plotly_chart(fig_comparison, use_container_width=True)
         
+        # Modern loss projection chart
         loss_data = pd.DataFrame({
             'Period': ['Month', 'Quarter', 'Year'],
             'Loss': [wasted, wasted * 3, wasted * 12]
         })
-        fig_loss = px.bar(loss_data, x='Period', y='Loss', title="If you do nothing... losses")
-        fig_loss.update_layout(height=300, template='plotly_white')
+        
+        fig_loss = go.Figure()
+        fig_loss.add_trace(go.Bar(
+            x=loss_data['Period'],
+            y=loss_data['Loss'],
+            marker=dict(
+                color=['#FF6B9D', '#FF8A80', '#FFAB91'],
+                cornerradius=15,
+                line=dict(width=0)
+            ),
+            text=[f'${val:,.0f}' for val in loss_data['Loss']],
+            textposition='outside',
+            textfont=dict(size=14, color='#333')
+        ))
+        
+        fig_loss.update_layout(
+            title=dict(text="If you do nothing... losses", font_size=18, x=0.5),
+            height=350,
+            template='plotly_white',
+            showlegend=False,
+            margin=dict(t=80, b=40, l=40, r=40),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+        fig_loss.update_xaxes(showgrid=False)
+        fig_loss.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.2)')
         st.plotly_chart(fig_loss, use_container_width=True)
         
         st.markdown(f"Every day you delay ≈ ${daily_waste:.0f} leaks out.")
@@ -355,12 +486,61 @@ if uploaded_file is not None:
             
             if impact_effort:
                 opp_df = pd.DataFrame(impact_effort)
-                fig_scatter = px.scatter(opp_df, x='Effort', y='Impact', text='Leak',
-                                       title="Impact vs Effort Matrix")
-                fig_scatter.add_hline(y=0.5, line_dash="dash", line_color="gray")
-                fig_scatter.add_vline(x=0.5, line_dash="dash", line_color="gray")
-                fig_scatter.update_traces(textposition="top center")
-                fig_scatter.update_layout(height=400, template='plotly_white')
+                
+                # Modern scatter plot with bubble styling
+                fig_scatter = go.Figure()
+                
+                # Add quadrant background colors
+                fig_scatter.add_shape(type="rect", x0=0, y0=0.5, x1=0.5, y1=1, 
+                                    fillcolor="rgba(255, 107, 157, 0.1)", line=dict(width=0))
+                fig_scatter.add_shape(type="rect", x0=0.5, y0=0.5, x1=1, y1=1, 
+                                    fillcolor="rgba(78, 205, 196, 0.1)", line=dict(width=0))
+                fig_scatter.add_shape(type="rect", x0=0, y0=0, x1=0.5, y1=0.5, 
+                                    fillcolor="rgba(200, 200, 200, 0.1)", line=dict(width=0))
+                fig_scatter.add_shape(type="rect", x0=0.5, y0=0, x1=1, y1=0.5, 
+                                    fillcolor="rgba(255, 171, 145, 0.1)", line=dict(width=0))
+                
+                # Add quadrant lines
+                fig_scatter.add_hline(y=0.5, line_dash="dash", line_color="rgba(128,128,128,0.5)", line_width=2)
+                fig_scatter.add_vline(x=0.5, line_dash="dash", line_color="rgba(128,128,128,0.5)", line_width=2)
+                
+                # Add scatter points
+                fig_scatter.add_trace(go.Scatter(
+                    x=opp_df['Effort'],
+                    y=opp_df['Impact'],
+                    mode='markers+text',
+                    marker=dict(
+                        size=20,
+                        color='#667eea',
+                        line=dict(width=2, color='white'),
+                        opacity=0.8
+                    ),
+                    text=opp_df['Leak'],
+                    textposition="top center",
+                    textfont=dict(size=12, color='#333'),
+                    showlegend=False
+                ))
+                
+                # Add quadrant labels
+                fig_scatter.add_annotation(x=0.25, y=0.75, text="Quick Wins<br>(Low Effort, High Impact)", 
+                                         showarrow=False, font=dict(size=10, color='#4ECDC4'))
+                fig_scatter.add_annotation(x=0.75, y=0.75, text="Major Projects<br>(High Effort, High Impact)", 
+                                         showarrow=False, font=dict(size=10, color='#667eea'))
+                fig_scatter.add_annotation(x=0.25, y=0.25, text="Fill Ins<br>(Low Effort, Low Impact)", 
+                                         showarrow=False, font=dict(size=10, color='#999'))
+                fig_scatter.add_annotation(x=0.75, y=0.25, text="Thankless Tasks<br>(High Effort, Low Impact)", 
+                                         showarrow=False, font=dict(size=10, color='#FF8A80'))
+                
+                fig_scatter.update_layout(
+                    title=dict(text="Impact vs Effort Matrix", font_size=18, x=0.5),
+                    height=500,
+                    template='plotly_white',
+                    xaxis=dict(title="Effort", range=[0, 1], showgrid=False),
+                    yaxis=dict(title="Impact", range=[0, 1], showgrid=False),
+                    margin=dict(t=80, b=60, l=60, r=60),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
                 st.plotly_chart(fig_scatter, use_container_width=True)
         
         # Section G - Benchmarks
