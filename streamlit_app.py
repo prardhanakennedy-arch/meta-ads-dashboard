@@ -1,7 +1,5 @@
-# Create a self-contained, cleaned Streamlit app with NO filesystem writes inside the app.
-# Saves as /mnt/data/streamlit_app_clean.py for download.
-
-code = r'''
+# Save a clean Streamlit app (no self-writing blocks) as /mnt/data/streamlit_app.py for easy download.
+clean_code = r'''
 # streamlit_app.py
 # ----------------
 # Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs), no duplicates
@@ -572,7 +570,7 @@ for L in money_leaks + risk_leaks:
         (f"- Estimated monthly impact: {money(L['impact'])}" if L['impact']>0 else "- Impact: risk / accuracy"),
         (f"- Note: {L.get('impact_note','')}" if L.get('impact_note') else ""),
         "- What to do next:",
-    ] + [f"  - {a}" for a in L["actions"]] + [""]
+    ] + [f"  - {a}" for a in L['actions']] + [""]
 
 report_md = "\n".join(report_md_lines).encode("utf-8")
 st.download_button("⬇️ Download Report (.md)", data=report_md, file_name="revenue_leak_report.md", mime="text/markdown")
@@ -601,15 +599,14 @@ def pdf_from_md(md_text):
     doc.build(story)
     return buf.getvalue()
 
-# Uncomment if you want PDF enabled
+# PDF export is optional; left commented to avoid extra dependency by default.
 # if REPORTLAB_AVAILABLE:
 #     pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
 #     if pdf_bytes:
 #         st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
 '''
-
-path = "/mnt/data/streamlit_app_clean.py"
+path = "/mnt/data/streamlit_app.py"
 with open(path, "w", encoding="utf-8") as f:
-    f.write(code)
+    f.write(clean_code)
 
 path
