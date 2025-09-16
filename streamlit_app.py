@@ -313,7 +313,7 @@ with c3:
 # Top rows sample
 
 # --- Top Revenue-Generating Campaigns (replaces sample rows) ---
-st.markdown('<div class="card">**Top Revenue-Generating Campaigns**</div>', unsafe_allow_html=True)
+st.markdown('<div class="card">Top Revenue-Generating Campaigns</div>', unsafe_allow_html=True)
 
 if "campaign_name" in U.columns:
     # Controls
@@ -321,7 +321,7 @@ if "campaign_name" in U.columns:
     with ctl1:
         rank_by = st.selectbox("Rank by", ["Revenue", "ROAS", "Purchases", "Clicks"], index=0, key="rank_by_camp")
     with ctl2:
-        top_n = st.slider("Show top N", min_value=5, max_value=50, value=10, step=1, key="topn_camp")
+        top_n = st.slider("Show top N", min_value=5, max_value=10, value=10, step=1, key="topn_camp")
 
     # Aggregate
     grp = U.groupby("campaign_name", dropna=True).agg(
