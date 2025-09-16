@@ -44,6 +44,10 @@ st.markdown("""
   .kpi-sub { font-size:12px; color:var(--muted); margin-top:2px; }
   .section-title { margin: 8px 0 6px; }
   .table-card .row_heading, .table-card .blank {display:none;}
+  .card { overflow: hidden; }
+  .card ul { margin: 0; padding-left: 1.1rem; }
+  .card li { margin: 4px 0; }
+  .card .note { font-size:12px; color:var(--muted); margin-top:6px; }
   /* Make Streamlit tabs look like soft pills */
   div[data-baseweb="tab-list"] { gap: 8px; }
   button[role="tab"] {
@@ -519,16 +523,22 @@ for i, r in enumerate(rows, start=1):
         with pcol3:
             st.markdown(f'<div class="card"><p class="kpi-title">Duration</p><p class="kpi-value">{int(r["Duration (days)"])} days</p><p class="kpi-sub">{r["Start"]} → {r["Due"]}</p></div>', unsafe_allow_html=True)
         st.markdown("**Root cause**")
-        st.markdown(f'<div class="card">{r["Root cause"]}</div>', unsafe_allow_html=True)
+        st.markdown(f"""\
+<div class="card"><p style="margin:0">{r["Root cause"]}</p></div>\
+""", unsafe_allow_html=True)
         st.markdown("**What to do this phase**")
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        if r["Actions"]:
-            st.markdown("\n".join([f"- {a}" for a in r["Actions"]]), unsafe_allow_html=True)
-        else:
-            st.markdown("- Actions will appear here when available.")
-        if r["Note"]:
-            st.caption(r["Note"])
-        st.markdown('</div>', unsafe_allow_html=True)
+
+actions_items = "".join([f"<li>{a}</li>" for a in r.get("Actions", [])]) or "<li>Actions will appear here when available.</li>"
+note_html = f'<div class="note">{r["Note"]}</div>' if r.get("Note") else ""
+st.markdown(f"""\
+<div class="card">\
+  <ul>\
+    {actions_items}\
+  </ul>\
+  {note_html}\
+</div>\
+""", unsafe_allow_html=True)
+
 
 # ------------------------
 # Downloads — NO per-leak details
