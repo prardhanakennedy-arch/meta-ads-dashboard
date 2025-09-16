@@ -1,5 +1,4 @@
-# Save a clean Streamlit app (no self-writing blocks) as /mnt/data/streamlit_app.py for easy download.
-clean_code = r'''
+
 # streamlit_app.py
 # ----------------
 # Revenue Leak Finder — Poppins UI, KPI cards + charts, redesigned Milestones (tabs), no duplicates
@@ -604,6 +603,3 @@ def pdf_from_md(md_text):
 #     pdf_bytes = pdf_from_md(report_md.decode("utf-8"))
 #     if pdf_bytes:
 #         st.download_button("⬇️ Download Report (.pdf)", data=pdf_bytes, file_name="revenue_leak_report.pdf", mime="application/pdf")
-'''
-
-path
