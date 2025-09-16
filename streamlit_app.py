@@ -115,7 +115,7 @@ logo_file = st.sidebar.file_uploader("Logo (PNG/JPG)", type=["png","jpg","jpeg"]
 
 st.sidebar.markdown("---")
 st.sidebar.title("Inputs")
-meta_file = st.sidebar.file_uploader("Meta Ads (CSV/XLSX)", type=["csv","xlsx"])
+meta_file = st.sidebar.file_uploader("Meta Ads", type=["xlsx","txt"])
 backend_file = st.sidebar.file_uploader("Backend Orders (CSV/XLSX)", type=["csv","xlsx"])
 web_file = st.sidebar.file_uploader("Web Analytics (CSV/XLSX)", type=["csv","xlsx"])
 pixel_file = st.sidebar.file_uploader("Pixel Events (optional)", type=["csv","xlsx"])
