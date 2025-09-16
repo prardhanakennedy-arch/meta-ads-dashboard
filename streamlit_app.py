@@ -25,7 +25,7 @@ try:
 except Exception:
     REPORTLAB_AVAILABLE = False
 
-st.set_page_config(page_title="Revenue Leak Finder (Plain, FOMO)", layout="wide")
+st.set_page_config(page_title="Wittelsbach AI - Revenue Leak Finder", layout="wide")
 
 # ------------------------
 # Helpers
@@ -104,8 +104,8 @@ min_spend_considered = st.sidebar.number_input("Min Spend per Ad to count", valu
 # ------------------------
 # Header
 # ------------------------
-st.title("Revenue Leak Finder — Simple, Actionable, FOMO Ready")
-st.caption("Focus: where money is leaking, how much, and what to do right now. No jargon, no graphs.")
+st.title(" Wittelsbach AI - Revenue Leak Finder")
+st.caption("Focus: where money is leaking, how much, and what to do right now.")
 
 if ads_file is None:
     st.info("Upload your **Ads CSV** (Meta OR Google) to get started. Optional: Backend Orders CSV, Web Analytics CSV.")
